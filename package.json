@@ -8,8 +8,10 @@
   "scripts": {
     "dev": "npx -y node@22 node_modules/vinext/dist/cli.js dev",
     "build": "npx -y node@22 node_modules/vinext/dist/cli.js build",
+    "deploy": "npx -y node@22 node_modules/wrangler/bin/wrangler.js deploy --config dist/server/wrangler.json",
+    "deploy:check": "npm run deploy -- --dry-run",
     "start": "npx -y node@22 node_modules/vinext/dist/cli.js start",
-    "test": "npm run build && npx -y node@22 --test tests/rendered-html.test.mjs",
+    "test": "npm run build && npx -y node@22 --test tests/rendered-html.test.mjs tests/cloudflare-deploy.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
