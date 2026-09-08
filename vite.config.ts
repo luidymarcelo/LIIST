@@ -53,6 +53,7 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    envPrefix: ["VITE_", "NEXT_PUBLIC_"],
     environments: {
       client: {
         build: {

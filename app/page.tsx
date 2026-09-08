@@ -648,9 +648,10 @@ const initialCheckout: Checkout = {
   longitude: null,
 };
 
+const appEnv = import.meta.env as Record<string, string | undefined>;
+
 const hasSupabaseConfig = Boolean(
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  appEnv.NEXT_PUBLIC_SUPABASE_URL && appEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 );
 
 function formatPrice(value: number) {
