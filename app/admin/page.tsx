@@ -1539,8 +1539,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
 
   async function openCompanySettings(tenantId: string, section: CompanySettingsSection = "overview") {
     if (!supabase) return;
-    const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? null;
-    const selectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
+    const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? (tenant?.id === tenantId ? tenant : null);
+    const adminSelectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
+    const selectedBranches = adminSelectedBranches.length
+      ? adminSelectedBranches
+      : branches.filter((branch) => branch.tenant_id === tenantId);
     setTenant(selectedTenant);
     setBranches(selectedBranches);
     setActiveBranchId(selectedBranches[0]?.id ?? "");
@@ -1589,22 +1592,40 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
-    const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
-      supabase.functions.invoke("create-store-user", {
-        body: { action: "get-company-settings", tenant_id: tenantId },
-      }),
+    const [settingsResult, tenantParameterResult, branchParameterResult, tenantIdentityResult] = await Promise.all([
+      isCompanyPortal
+        ? Promise.resolve({ data: { account: null }, error: null })
+        : supabase.functions.invoke("create-store-user", {
+            body: { action: "get-company-settings", tenant_id: tenantId },
+          }),
       supabase
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
         .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY]),
       branchParameterRequest,
+      supabase
+        .from("tenants")
+        .select("id, name, slug, is_active, theme_color, profile_image_url")
+        .eq("id", tenantId)
+        .maybeSingle(),
     ]);
     setLoadingSettings(false);
     const { data, error } = settingsResult;
-    if (error || data?.error || tenantParameterResult.error || branchParameterResult.error) {
-      setMessage(data?.error ?? error?.message ?? tenantParameterResult.error?.message ?? branchParameterResult.error?.message ?? "Não foi possível carregar as configurações da empresa.");
+    if (error || data?.error || tenantParameterResult.error || branchParameterResult.error || tenantIdentityResult.error) {
+      setMessage(data?.error ?? error?.message ?? tenantParameterResult.error?.message ?? branchParameterResult.error?.message ?? tenantIdentityResult.error?.message ?? "Não foi possível carregar as configurações da empresa.");
       return;
+    }
+    if (tenantIdentityResult.data) {
+      const savedTenant = tenantIdentityResult.data as Tenant;
+      const nextTenant = { ...(selectedTenant ?? savedTenant), ...savedTenant };
+      setTenant(nextTenant);
+      setCompanyIdentity({
+        isActive: nextTenant.is_active ?? true,
+        themeColor: companyThemeColor(nextTenant.theme_color),
+        profileImageUrl: nextTenant.profile_image_url ?? "",
+      });
+      setAdminTenants((current) => current.map((item) => item.id === nextTenant.id ? { ...item, ...nextTenant } : item));
     }
     setAccessForm({
       name: data?.account?.name ?? "",
@@ -3379,9 +3400,9 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           <div className={isBusinessPortal ? "company-portal-content" : "admin-console-content"}>
         {isBusinessPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : isBranchPortal ? tenant?.name ?? "Painel da filial" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Empresa e operação" : isBranchPortal ? "Gestão da filial" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Catálogo, equipe e mesas em áreas separadas." : isBranchPortal ? "Atualize o catálogo somente da filial autorizada." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
-        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => { setCompanyPortalSection(section); setMessage(""); }} /> : null}
+        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => { setCompanyPortalSection(section); setMessage(""); if (section === "settings") void openCompanySettings(tenant.id, "identity"); }} /> : null}
 
-        {isCompanyPortal && tenant && companyPortalSection !== "catalog" ? (
+        {isCompanyPortal && tenant && (companyPortalSection === "team" || companyPortalSection === "tables") ? (
           <CompanyOperations
             section={companyPortalSection}
             tenant={tenant}
@@ -3420,11 +3441,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
             />
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
-        ) : portalMode === "admin" && adminSection === "settings" ? (
+        ) : (portalMode === "admin" && adminSection === "settings") || (isCompanyPortal && companyPortalSection === "settings") ? (
           <section className="company-settings-view">
             <header className="company-settings-header">
-              <div className="company-settings-title"><button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button><span className="company-settings-logo" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt="" /> : tenant.name.trim().slice(0, 2).toUpperCase()}</span><div><span>Gerenciar empresa</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"} · {companyIdentity.isActive ? "Empresa ativa" : "Empresa inativa"}</p></div></div>
-              <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div>
+              <div className="company-settings-title">{portalMode === "admin" ? <button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button> : null}<span className="company-settings-logo" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt="" /> : tenant.name.trim().slice(0, 2).toUpperCase()}</span><div><span>{isCompanyPortal ? "Configurações da empresa" : "Gerenciar empresa"}</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"} · {companyIdentity.isActive ? "Empresa ativa" : "Empresa inativa"}</p></div></div>
+              {portalMode === "admin" ? <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div> : null}
             </header>
             <div className="company-settings-layout">
               <CompanySettingsNav isCompanyPortal={isCompanyPortal} section={companySettingsSection} onChange={(section) => { setCompanySettingsSection(section); if (section === "parameters") setParameterScope("company"); }} />
@@ -3771,10 +3792,10 @@ function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyP
   const options: Array<{ id: CompanySettingsSection; label: string; icon: typeof Settings }> = [
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
     { id: "identity", label: "Identidade", icon: Palette },
-    { id: "access", label: "Acesso", icon: KeyRound },
+    ...(isCompanyPortal ? [] : [{ id: "access" as const, label: "Acesso", icon: KeyRound }]),
     ...(isCompanyPortal ? [{ id: "additions" as const, label: "Adicionais", icon: Plus }] : []),
     { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
-    { id: "danger", label: "Exclusão", icon: TriangleAlert },
+    ...(isCompanyPortal ? [] : [{ id: "danger" as const, label: "Exclusão", icon: TriangleAlert }]),
   ];
 
   return (

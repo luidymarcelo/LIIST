@@ -42,10 +42,11 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/admin/company-operations.tsx", projectRoot), "utf8"),
     readFile(new URL("app/pedidos/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
@@ -62,6 +63,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/017_internal_orders.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/022_multi_role_company_users.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/023_operational_workflow.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/024_company_owner_identity.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -514,6 +516,10 @@ test("keeps the growth surfaces present", async () => {
   );
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
+  assert.match(adminPage, /section === "settings"\) void openCompanySettings\(tenant\.id, "identity"\)/);
+  assert.match(adminPage, /isCompanyPortal\s*\?\s*Promise\.resolve\(\{ data: \{ account: null \}, error: null \}\)/);
+  assert.match(companyPortalSource, /CompanyPortalSection = "catalog" \| "team" \| "tables" \| "settings"/);
+  assert.match(companyPortalSource, />Configurações</);
   assert.match(adminPage, /let uploadedPath = ""/);
   assert.doesNotMatch(adminPage, /const uploadedPaths: string\[\] = \[\];\s*try \{\s*let profileImageUrl/);
   assert.match(adminPage, /select\("id, is_active, theme_color, profile_image_url"\)\s*\.single\(\)/);
@@ -564,6 +570,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(companyBrandingSql, /and s\.is_active/);
   assert.match(companyBrandingSql, /and t\.is_active/);
   assert.match(companyBrandingSql, /platform admins update company identity/);
+  assert.match(companyOwnerIdentitySql, /company owners update own company identity/);
+  assert.match(companyOwnerIdentitySql, /using \(public\.is_company_owner\(id\)\)/);
+  assert.match(companyOwnerIdentitySql, /'profile_image_url', t\.profile_image_url/);
   assert.match(branchManagementSql, /company members read own stores/);
   assert.match(branchManagementSql, /using \(public\.can_manage_store\(id\)\)/);
   assert.match(branchManagementSql, /company members update own stores/);

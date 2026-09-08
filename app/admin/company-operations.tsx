@@ -12,6 +12,7 @@ import {
   RotateCw,
   Search,
   ShieldCheck,
+  Settings,
   Store,
   Trash2,
   UserRound,
@@ -22,7 +23,7 @@ import QRCode from "qrcode";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { supabase } from "../../lib/supabase";
 
-export type CompanyPortalSection = "catalog" | "team" | "tables";
+export type CompanyPortalSection = "catalog" | "team" | "tables" | "settings";
 
 export type OperationsTenant = { id: string; name: string };
 export type OperationsBranch = {
@@ -132,6 +133,7 @@ export function CompanyPortalNav({ section, onChange }: { section: CompanyPortal
   return (
     <nav className="company-portal-nav" aria-label="Áreas da empresa">
       <button aria-current={section === "catalog" ? "page" : undefined} className={section === "catalog" ? "active" : ""} type="button" onClick={() => onChange("catalog")}><Store size={17} /><span>Catálogo</span></button>
+      <button aria-current={section === "settings" ? "page" : undefined} className={section === "settings" ? "active" : ""} type="button" onClick={() => onChange("settings")}><Settings size={17} /><span>Configurações</span></button>
       <button aria-current={section === "team" ? "page" : undefined} className={section === "team" ? "active" : ""} type="button" onClick={() => onChange("team")}><UsersRound size={17} /><span>Equipe</span></button>
       <button aria-current={section === "tables" ? "page" : undefined} className={section === "tables" ? "active" : ""} type="button" onClick={() => onChange("tables")}><QrCode size={17} /><span>Mesas</span></button>
     </nav>
@@ -145,7 +147,7 @@ export function CompanyOperations({
   activeBranchId,
   onBranchChange,
 }: {
-  section: Exclude<CompanyPortalSection, "catalog">;
+  section: Exclude<CompanyPortalSection, "catalog" | "settings">;
   tenant: OperationsTenant;
   branches: OperationsBranch[];
   activeBranchId: string;

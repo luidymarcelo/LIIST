@@ -240,7 +240,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
   }
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
-    adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
+    adminClient.from("tenants").select("id, name, slug, is_active, theme_color, profile_image_url").eq("id", tenantId).single(),
     adminClient.from("stores").select("id, name, slug, cnpj, tenant_id, whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
