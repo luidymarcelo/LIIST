@@ -1991,9 +1991,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       const { data: savedIdentity, error } = await supabase
         .from("tenants")
         .update(identityData)
-        .eq("id", tenant.id)
-        .select("id, is_active, theme_color, profile_image_url")
-        .single();
+        .eq("id", tenant.id);
       if (error) throw error;
 
       const previousImagePath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
@@ -2001,9 +1999,9 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousImagePath]);
       }
       const savedIdentityData = {
-        is_active: savedIdentity.is_active,
-        theme_color: companyThemeColor(savedIdentity.theme_color),
-        profile_image_url: savedIdentity.profile_image_url,
+        is_active: identityData.is_active,
+        theme_color: companyThemeColor(identityData.theme_color),
+        profile_image_url: identityData.profile_image_url,
       };
       const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, ...savedIdentityData } : item;
       setTenant((current) => current ? updateTenant(current) : current);
@@ -2021,7 +2019,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       setMessage(successMessage);
     } catch (error) {
       if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
-      const errorMessage = error instanceof Error ? error.message : "Não foi possível atualizar a identidade da empresa.";
+      const errorMessage = error instanceof Error
+        ? error.message
+        : typeof error === "object" && error && "message" in error
+          ? String((error as { message?: unknown }).message ?? "Não foi possível atualizar a identidade da empresa.")
+          : "Não foi possível atualizar a identidade da empresa.";
       setCompanyIdentityFeedback({ status: "error", message: errorMessage });
       setMessage(errorMessage);
     } finally {
