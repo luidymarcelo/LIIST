@@ -98,6 +98,7 @@ type Merchant = {
   deliveryFeeType: DeliveryFeeType;
   calculatesDeliveryFee: boolean;
   catalogLayout: CatalogLayout;
+  compactInternalCatalog: boolean;
   whatsapp: string;
   address: string;
   latitude: number | null;
@@ -146,6 +147,20 @@ type OrderTotals = {
 };
 
 const STORE_RADIUS_KM = 30;
+const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
+const DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type";
+const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
+const ADDITIONS_PARAMETER_KEY = "enable_additions";
+const ORDER_MODE_PARAMETER_KEY = "order_mode";
+const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
+const PUBLIC_CATALOG_PARAMETER_KEYS = [
+  FREIGHT_PARAMETER_KEY,
+  DELIVERY_FEE_TYPE_PARAMETER_KEY,
+  CATALOG_LAYOUT_PARAMETER_KEY,
+  ADDITIONS_PARAMETER_KEY,
+  ORDER_MODE_PARAMETER_KEY,
+  INTERNAL_CATALOG_COMPACT_PARAMETER_KEY,
+];
 
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -271,6 +286,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
+    compactInternalCatalog: true,
     whatsapp: "5599999990001",
     address: "Av. Central, 320",
     latitude: -7.1908,
@@ -345,6 +361,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
+    compactInternalCatalog: true,
     whatsapp: "5599999990002",
     address: "Rua das Flores, 88",
     latitude: -7.1842,
@@ -420,6 +437,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
+    compactInternalCatalog: true,
     whatsapp: "5599999990003",
     address: "Av. Filadelfia, 1280 - Setor Industrial",
     latitude: -7.2056,
@@ -616,6 +634,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
+    compactInternalCatalog: true,
     whatsapp: "",
     address: "Endereço não informado",
     latitude: store.latitude == null ? null : Number(store.latitude),
@@ -903,6 +922,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const displayMerchant = directStoreId
     ? merchants.find((store) => store.id === directStoreId) ?? null
     : merchant;
+  const compactInternalCatalog =
+    orderChannel === "internal" &&
+    Boolean(internalOrderContext) &&
+    merchant.compactInternalCatalog;
 
   useEffect(() => {
     if (!supabase) return;
@@ -935,11 +958,11 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         supabase
           .from("tenant_parameters")
           .select("tenant_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout", "enable_additions", "order_mode"]),
+          .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
         supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout", "enable_additions", "order_mode"]),
+          .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
         supabase.rpc("get_public_catalog_companies"),
         supabase
           .from("option_groups")
@@ -1013,6 +1036,16 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         (storeParameterResult.data ?? [])
           .filter((row) => row.parameter_key === "order_mode")
           .map((row) => [row.store_id, orderModeValue(row.parameter_value)]),
+      );
+      const tenantCompactInternalCatalogParameters = new Map(
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === INTERNAL_CATALOG_COMPACT_PARAMETER_KEY)
+          .map((row) => [row.tenant_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const storeCompactInternalCatalogParameters = new Map(
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === INTERNAL_CATALOG_COMPACT_PARAMETER_KEY)
+          .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
       );
       const companyNames = new Map<string, { name: string; themeColor: string; profileImage: string | null }>(
         ((companyResult.data ?? []) as PublicCompanyIdentity[]).map((row) => [row.tenant_id, {
@@ -1113,6 +1146,9 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             catalogLayout: storeLayoutParameters.get(store.id)
               ?? tenantLayoutParameters.get(store.tenant_id)
               ?? "horizontal",
+            compactInternalCatalog: storeCompactInternalCatalogParameters.has(store.id)
+              ? storeCompactInternalCatalogParameters.get(store.id)!
+              : tenantCompactInternalCatalogParameters.get(store.tenant_id) ?? true,
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
             coverNote: typeof store.cover_note === "string" ? store.cover_note.trim() : "",
@@ -1771,7 +1807,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
               onToggleAll={() => setShowAllStores((current) => !current)}
             />
           ) : <>
-          <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
+          <MerchantHero
+            merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant}
+            compact={compactInternalCatalog}
+          />
           <div className="commerce-grid direct-store">
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <nav className="category-strip" aria-label="Categorias">
@@ -2150,13 +2189,13 @@ function merchantMapUrl(merchant: Merchant) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${merchant.latitude}%2C${merchant.longitude}`;
 }
 
-function MerchantHero({ merchant }: { merchant: Merchant }) {
+function MerchantHero({ merchant, compact = false }: { merchant: Merchant; compact?: boolean }) {
   const branchName = merchantBranchLabel(merchant);
   const mapUrl = merchantMapUrl(merchant);
   const locationUrl = hasCoordinates(merchant) ? mapsUrl(merchant) : null;
 
   return (
-    <section className="merchant-presentation" style={{ "--merchant-color": merchant.palette } as CSSProperties}>
+    <section className={compact ? "merchant-presentation compact-internal" : "merchant-presentation"} style={{ "--merchant-color": merchant.palette } as CSSProperties}>
       <div className="merchant-hero">
         <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
       </div>
@@ -2168,7 +2207,7 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
             <Store size={30} />
           )}
         </span>
-        <div className="merchant-info-content">
+        {!compact ? <div className="merchant-info-content">
           <div className="merchant-info-heading">
             <div>
               <h1>{merchant.companyName}</h1>
@@ -2196,7 +2235,7 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
             </a>
           ) : null}
           {merchant.coverNote ? <p className="merchant-cover-note">{merchant.coverNote}</p> : null}
-        </div>
+        </div> : null}
       </div>
     </section>
   );

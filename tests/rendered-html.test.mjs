@@ -191,9 +191,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Valor por km/);
   assert.match(adminPage, /branch-delivery-fee-type/);
   assert.match(adminPage, /Controle de estoque/);
-  assert.match(adminPage, />6 parâmetros</);
+  assert.match(adminPage, />7 parâmetros</);
   assert.match(adminPage, /ORDER_MODE_PARAMETER_KEY = "order_mode"/);
+  assert.match(adminPage, /INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog"/);
   assert.match(adminPage, /Modo de pedidos/);
+  assert.match(adminPage, /Visual interno/);
   assert.match(adminPage, /Comanda interna/);
   assert.match(adminPage, /type OrderMode = "whatsapp" \| "internal" \| "both"/);
   assert.match(adminPage, /onCompanyOrderModeChange\("both"\)/);
@@ -208,6 +210,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /type OrderMode = OrderChannel \| "both"/);
   assert.match(page, /value === "both"/);
   assert.match(page, /function orderChannelAvailable/);
+  assert.match(page, /compactInternalCatalog/);
+  assert.match(page, /compact-internal/);
   assert.match(page, /export function CatalogApplication/);
   assert.match(page, /CatalogApplication orderChannel="whatsapp"/);
   assert.match(page, /liist-cart-\$\{orderChannel\}/);

@@ -1617,6 +1617,20 @@ img {
   transform: translateX(-50%);
 }
 
+.merchant-presentation.compact-internal .merchant-info-card {
+  width: 112px;
+  height: 58px;
+  margin-top: -58px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.merchant-presentation.compact-internal .merchant-profile {
+  top: 0;
+}
+
 .merchant-profile img {
   width: 100%;
   height: 100%;
