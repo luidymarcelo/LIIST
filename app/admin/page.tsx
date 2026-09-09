@@ -126,7 +126,6 @@ type CatalogImportOptionRow = {
 };
 
 const BRANCH_CNPJ_STORAGE_KEY = "liist-branch-cnpj";
-const LEGACY_BRANCH_CNPJ_STORAGE_KEY = "catalogo-facil-branch-cnpj";
 
 type CatalogImportAdditionGroup = {
   name: string;
@@ -700,7 +699,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     if (!supabase) return;
     if (isBranchPortal) {
       const savedCnpj = window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
-        ?? window.localStorage.getItem(LEGACY_BRANCH_CNPJ_STORAGE_KEY)
         ?? "";
       const { data: branchWorkspace, error: branchWorkspaceError } = await supabase.rpc("get_branch_workspace", { p_cnpj: savedCnpj });
       if (branchWorkspace?.tenant && branchWorkspace?.branches?.length) {

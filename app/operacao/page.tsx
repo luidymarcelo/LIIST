@@ -79,11 +79,9 @@ function operationalError(error: unknown, fallback: string) {
 
 const operationCurrency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const OPERATION_CNPJ_STORAGE_KEY = "liist-operation-cnpj";
-const LEGACY_OPERATION_CNPJ_STORAGE_KEY = "catalogo-facil-operation-cnpj";
 
 function storedOperationCnpj() {
   return window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
-    ?? window.localStorage.getItem(LEGACY_OPERATION_CNPJ_STORAGE_KEY)
     ?? "";
 }
 

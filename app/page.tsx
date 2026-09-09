@@ -907,8 +907,6 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const internalContextKey = internalOrderContext ? `${internalOrderContext.source}-${internalOrderContext.tableId ?? internalOrderContext.storeId}` : "default";
   const cartStorageKey = `liist-cart-${orderChannel}-${internalContextKey}`;
   const checkoutStorageKey = `liist-checkout-${orderChannel}-${internalContextKey}`;
-  const legacyCartStorageKey = `catalogo-facil-cart-${orderChannel}-${internalContextKey}`;
-  const legacyCheckoutStorageKey = `catalogo-facil-checkout-${orderChannel}-${internalContextKey}`;
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
     "farmacia-vida": fallbackMerchants[1].integration.lastSync,
@@ -1180,11 +1178,9 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
 
   useEffect(() => {
     const savedCart = window.localStorage.getItem(cartStorageKey)
-      ?? window.localStorage.getItem(legacyCartStorageKey)
-      ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-cart") : null);
+      ?? null;
     const savedCheckout = window.localStorage.getItem(checkoutStorageKey)
-      ?? window.localStorage.getItem(legacyCheckoutStorageKey)
-      ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-checkout") : null);
+      ?? null;
 
     if (savedCart) {
       setCart((JSON.parse(savedCart) as CartItem[]).map((item) => ({ ...item, selectedOptions: item.selectedOptions ?? [] })));
@@ -1201,7 +1197,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
       }
     }
-  }, [cartStorageKey, checkoutStorageKey, legacyCartStorageKey, legacyCheckoutStorageKey, orderChannel]);
+  }, [cartStorageKey, checkoutStorageKey]);
 
   useEffect(() => {
     window.localStorage.setItem(cartStorageKey, JSON.stringify(cart));
@@ -1769,7 +1765,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             onClick={() => setView("catalog")}
           >
             <ShoppingCart size={18} />
-            <span>Catalogo</span>
+            <span>Vitrine</span>
           </button>
             <button
               className={view === "admin" ? "nav-action active" : "nav-action"}
@@ -2651,7 +2647,7 @@ function AdminPanel({
                 </button>
                 <button onClick={() => onOpenCatalog(store.id)}>
                   <Store size={17} />
-                  Catalogo
+                  Vitrine
                 </button>
               </footer>
             </article>

@@ -187,8 +187,6 @@ export default function InternalOrdersPage() {
     if (!workspace) {
       const cnpj = window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
         ?? window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
-        ?? window.localStorage.getItem("catalogo-facil-operation-cnpj")
-        ?? window.localStorage.getItem("catalogo-facil-branch-cnpj")
         ?? "";
       if (cnpj) {
         const { data: operationalWorkspace, error: operationalError } = await supabase.rpc("get_operational_workspace", { p_cnpj: cnpj });
