@@ -402,15 +402,17 @@ function powershellSingleQuote(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function base64Utf8(value: string) {
-  const bytes = new TextEncoder().encode(value);
+function base64Utf16Le(value: string) {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    binary += String.fromCharCode(code & 0xff, code >> 8);
+  }
   return btoa(binary);
 }
 
 function cmdSafeLabel(value: string) {
-  return value.replace(/[\r\n&<>|^]/g, " ").replace(/\s+/g, " ").trim();
+  return value.replace(/[\r\n&<>|^%!"]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function printAgentInstallerScript({
@@ -434,104 +436,40 @@ function printAgentInstallerScript({
   const safeToken = powershellSingleQuote(token);
   const cmdCompanyName = cmdSafeLabel(companyName) || "LIIST";
   const cmdBranchName = cmdSafeLabel(branchName) || "Filial";
-  const powerShellScript = `# Instalador do LIIST Print Agent
-# Gerado pelo painel LIIST para ${companyName} / ${branchName}
-
-$ErrorActionPreference = "Stop"
+  const installerUrl = "https://raw.githubusercontent.com/luidymarcelo/LIIST/main/agents/liist-print-agent/windows-install.ps1";
+  const installerScriptPath = `$env:TEMP\\liist-print-agent-install-${taskSuffix}.ps1`;
+  const logPath = `$([Environment]::GetFolderPath("Desktop"))\\liist-print-agent-install-${taskSuffix}.log`;
+  const bootstrapScript = `$ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-$CompanyName = ${safeCompany}
-$BranchName = ${safeBranch}
-$SupabaseUrl = ${safeSupabaseUrl}
-$SupabaseAnonKey = ${safeAnonKey}
-$AgentToken = ${safeToken}
-$AgentUrl = "https://raw.githubusercontent.com/luidymarcelo/LIIST/main/agents/liist-print-agent/windows-agent.ps1"
-$InstallDir = Join-Path $env:ProgramData "LIIST\\PrintAgent\\${taskSuffix}"
-$AgentPath = Join-Path $InstallDir "windows-agent.ps1"
-$StartPath = Join-Path $InstallDir "start-liist-print-agent.ps1"
-$OutboxDir = Join-Path $InstallDir "print-outbox"
-$TaskName = "LIIST Print Agent - ${taskSuffix}"
-
-function Write-Step([string]$Message) {
-  Write-Host ""
-  Write-Host "== $Message ==" -ForegroundColor Cyan
-}
-
-function Read-PrinterName {
-  Write-Step "Impressoras encontradas"
-  if (-not (Get-Command Get-Printer -ErrorAction SilentlyContinue)) {
-    Write-Host "Este Windows nao possui o comando Get-Printer disponivel."
-    return Read-Host "Digite o nome exato da impressora ou deixe vazio para usar a padrao"
-  }
-
-  $printers = @(Get-Printer | Sort-Object Name)
-  if (-not $printers.Length) {
-    Write-Host "Nenhuma impressora instalada foi encontrada."
-    return ""
-  }
-
-  for ($index = 0; $index -lt $printers.Length; $index++) {
-    $printer = $printers[$index]
-    Write-Host ("[{0}] {1}  ({2})" -f ($index + 1), $printer.Name, $printer.DriverName)
-  }
-
-  $choice = Read-Host "Digite o numero da impressora ou pressione Enter para usar a impressora padrao"
-  if ([string]::IsNullOrWhiteSpace($choice)) { return "" }
-
-  $selectedIndex = 0
-  if (-not [int]::TryParse($choice, [ref]$selectedIndex) -or $selectedIndex -lt 1 -or $selectedIndex -gt $printers.Length) {
-    throw "Opcao de impressora invalida."
-  }
-  return $printers[$selectedIndex - 1].Name
-}
-
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$InstallerUrl = ${powershellSingleQuote(installerUrl)}
+$InstallerPath = "${installerScriptPath}"
+$InstallLog = "${logPath}"
+Start-Transcript -Path $InstallLog -Append | Out-Null
 try {
-  Write-Step "Instalando LIIST Print Agent"
+  $CompanyName = ${safeCompany}
+  $BranchName = ${safeBranch}
+  Write-Host ""
+  Write-Host "Instalador LIIST Print Agent" -ForegroundColor Cyan
   Write-Host "Empresa: $CompanyName"
   Write-Host "Filial: $BranchName"
-  New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-  New-Item -ItemType Directory -Path $OutboxDir -Force | Out-Null
-
-  Write-Step "Baixando agente oficial"
-  Invoke-WebRequest -Uri $AgentUrl -OutFile $AgentPath -UseBasicParsing
-
-  $PrinterName = Read-PrinterName
-  $PrinterArgument = if ([string]::IsNullOrWhiteSpace($PrinterName)) { "" } else { " -PrinterName '$($PrinterName.Replace("'", "''"))'" }
-
-  $StartContent = @"
-\`$ErrorActionPreference = "Stop"
-& '$($AgentPath.Replace("'", "''"))' -SupabaseUrl '$($SupabaseUrl.Replace("'", "''"))' -SupabaseAnonKey '$($SupabaseAnonKey.Replace("'", "''"))' -AgentToken '$($AgentToken.Replace("'", "''"))'$PrinterArgument -OutputDir '$($OutboxDir.Replace("'", "''"))' -IntervalSeconds 4
-"@
-  Set-Content -Path $StartPath -Value $StartContent -Encoding UTF8
-
-  Write-Step "Configurando inicializacao automatica"
-  $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File \`"$StartPath\`""
-  $Trigger = New-ScheduledTaskTrigger -AtLogOn
-  $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel LeastPrivilege
-  $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-  Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
-
-  Write-Step "Iniciando agente"
-  Start-ScheduledTask -TaskName $TaskName
-  $Task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-  Write-Host "Instalacao concluida." -ForegroundColor Green
-  Write-Host "Tarefa do Windows: $TaskName"
-  if ($Task) { Write-Host "Status da tarefa: $($Task.State)" }
-  Write-Host "Pasta: $InstallDir"
-  Write-Host "Comandas salvas em: $OutboxDir"
   Write-Host ""
-  Write-Host "Para testar agora, gere uma comanda interna para esta filial."
-  Write-Host "Para parar manualmente: Stop-ScheduledTask -TaskName '$TaskName'"
-  Write-Host "Para remover: Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:\`$false"
+  Write-Host "Baixando instalador oficial..."
+  Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing
+  Unblock-File -Path $InstallerPath -ErrorAction SilentlyContinue
+  & $InstallerPath -SupabaseUrl ${safeSupabaseUrl} -SupabaseAnonKey ${safeAnonKey} -AgentToken ${safeToken} -CompanyName ${safeCompany} -BranchName ${safeBranch} -TaskSuffix ${powershellSingleQuote(taskSuffix)}
 } catch {
   Write-Host ""
-  Write-Host "Falha na instalacao do LIIST Print Agent:" -ForegroundColor Red
+  Write-Host "Falha ao instalar o LIIST Print Agent:" -ForegroundColor Red
   Write-Host $_.Exception.Message -ForegroundColor Red
-  exit 1
-}
-`;
-  const encodedScript = base64Utf8(powerShellScript);
-  const encodedLines = encodedScript.match(/.{1,76}/g) ?? [];
+} finally {
+  try { Stop-Transcript | Out-Null } catch {}
+  Write-Host ""
+  Write-Host "Log da instalacao: $InstallLog"
+  Write-Host ""
+  Read-Host "Pressione Enter para fechar"
+}`;
+  const encodedCommand = base64Utf16Le(bootstrapScript);
   return `@echo off
 setlocal EnableExtensions
 title Instalador LIIST Print Agent - ${cmdBranchName}
@@ -540,31 +478,7 @@ echo Instalador LIIST Print Agent
 echo Empresa: ${cmdCompanyName}
 echo Filial: ${cmdBranchName}
 echo.
-set "INSTALLER=%TEMP%\\liist-print-agent-installer-${taskSuffix}.ps1"
-set "INSTALLER_B64=%TEMP%\\liist-print-agent-installer-${taskSuffix}.b64"
-> "%INSTALLER_B64%" (
-${encodedLines.map((line) => `  echo ${line}`).join("\n")}
-)
-certutil -f -decode "%INSTALLER_B64%" "%INSTALLER%" >nul
-if errorlevel 1 (
-  echo.
-  echo Nao foi possivel preparar o instalador.
-  echo Verifique se o Windows permite executar certutil.
-  echo.
-  pause
-  exit /b 1
-)
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%INSTALLER%"
-set "EXITCODE=%ERRORLEVEL%"
-echo.
-if "%EXITCODE%"=="0" (
-  echo Instalador finalizado. O agente fica registrado no Windows e inicia junto com o usuario.
-) else (
-  echo Instalador finalizou com erro. A mensagem acima mostra o motivo.
-)
-echo.
-pause
-exit /b %EXITCODE%
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -NoExit -EncodedCommand ${encodedCommand}
 `;
 }
 

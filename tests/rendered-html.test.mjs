@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, companyOwnerTenantParametersSql, printAgentMain, windowsPrintAgent, windowsPrinterList, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, companyOwnerTenantParametersSql, printAgentMain, windowsPrintAgent, windowsPrintInstaller, windowsPrinterList, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -70,6 +70,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/028_company_owner_tenant_parameters.sql", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/main.go", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/windows-agent.ps1", projectRoot), "utf8"),
+    readFile(new URL("agents/liist-print-agent/windows-install.ps1", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/windows-list-printers.ps1", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
@@ -270,16 +271,15 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /printAgentInstallerScript/);
   assert.match(adminPage, /Baixar instalador/);
   assert.match(adminPage, /liist-instalador-impressao-\$\{slugify\(branch\.name\) \|\| "filial"\}\.cmd/);
-  assert.match(adminPage, /certutil -f -decode/);
+  assert.match(adminPage, /windows-install\.ps1/);
+  assert.match(adminPage, /EncodedCommand/);
+  assert.match(adminPage, /NoExit/);
   assert.match(adminPage, /ExecutionPolicy Bypass/);
   assert.match(pageStyles, /\.parameter-compact-body\.print-agent-settings/);
   assert.doesNotMatch(adminPage, /Instalador por filial/);
   assert.doesNotMatch(pageStyles, /\.print-agent-branch-list/);
   assert.match(adminPage, /create_print_agent_token/);
-  assert.match(adminPage, /raw\.githubusercontent\.com\/luidymarcelo\/LIIST\/main\/agents\/liist-print-agent\/windows-agent\.ps1/);
-  assert.match(adminPage, /Get-Printer/);
-  assert.match(adminPage, /New-ScheduledTaskAction/);
-  assert.match(adminPage, /Register-ScheduledTask/);
+  assert.doesNotMatch(adminPage, /certutil -f -decode/);
   assert.match(ordersPage, /type PrintMode = "disabled" \| "manual" \| "automatic" \| "manual_and_automatic"/);
   assert.match(ordersPage, /enqueue_internal_order_print/);
   assert.match(ordersPage, /workflow-print-action/);
@@ -306,11 +306,16 @@ test("keeps the growth surfaces present", async () => {
   assert.match(printAgentMain, /complete_print_job/);
   assert.match(printAgentMain, /LIIST_PRINT_COMMAND/);
   assert.match(printAgentMain, /LIIST_PRINTER_NAME/);
-  assert.match(windowsPrintAgent, /Get-Printer/);
   assert.match(windowsPrintAgent, /PrinterName/);
   assert.match(windowsPrintAgent, /claim_next_print_job/);
   assert.match(windowsPrintAgent, /complete_print_job/);
   assert.match(windowsPrintAgent, /RPC \$Name falhou/);
+  assert.match(windowsPrintInstaller, /Get-Printer/);
+  assert.match(windowsPrintInstaller, /raw\.githubusercontent\.com\/luidymarcelo\/LIIST\/main\/agents\/liist-print-agent\/windows-agent\.ps1/);
+  assert.match(windowsPrintInstaller, /New-ScheduledTaskAction/);
+  assert.match(windowsPrintInstaller, /Register-ScheduledTask/);
+  assert.match(windowsPrintInstaller, /LOCALAPPDATA/);
+  assert.match(windowsPrintInstaller, /Log do agente/);
   assert.match(windowsPrinterList, /Get-Printer/);
   const commandCatalogPage = await readFile(new URL("app/comanda/page.tsx", projectRoot), "utf8");
   assert.match(commandCatalogPage, /CatalogApplication orderChannel="internal"/);

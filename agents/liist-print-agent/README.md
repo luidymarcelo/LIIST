@@ -13,13 +13,27 @@ Esse caminho nao precisa instalar Go. Ele usa PowerShell, que ja vem no Windows.
 - `supabase/026_internal_order_printing.sql`
 - `supabase/027_print_agent_token_sql_editor_access.sql`
 
-2. Gere um token para a filial:
+2. No painel admin do LIIST, abra:
+
+`Gerenciar empresa > Parametros > Filial > Configuracoes de impressao`
+
+Clique em `Baixar instalador` na filial correta.
+
+3. No computador da loja, execute o arquivo `.cmd` baixado.
+
+O instalador lista as impressoras do Windows, registra o agente no Agendador de Tarefas e inicia automaticamente com o usuario. Se algo falhar, a janela fica aberta e mostra o caminho do arquivo de log.
+
+## Caminho manual no Windows
+
+Use somente para diagnostico ou instalacao tecnica.
+
+1. Gere um token para a filial:
 
 ```sql
 select public.create_print_agent_token('ID_DA_FILIAL_AQUI', 'Computador do caixa');
 ```
 
-3. No computador da loja, liste as impressoras:
+2. No computador da loja, liste as impressoras:
 
 ```powershell
 cd C:\caminho\do\projeto\agents\liist-print-agent
@@ -28,7 +42,7 @@ cd C:\caminho\do\projeto\agents\liist-print-agent
 
 Copie o valor da coluna `Name` da impressora correta.
 
-4. Inicie o agente:
+3. Inicie o agente:
 
 ```powershell
 .\windows-agent.ps1 `
@@ -83,7 +97,7 @@ go run .
 
 ## Como usar no painel
 
-No portal da empresa, abra a empresa e acesse `Parametros`.
+No painel admin, abra a empresa e acesse `Parametros`.
 
 - `Desativada`: nao cria trabalhos de impressao.
 - `Manual`: mostra botao de imprimir/reimprimir no painel operacional.
