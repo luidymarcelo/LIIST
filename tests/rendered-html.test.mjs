@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, printAgentMain, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, printAgentMain, windowsPrintAgent, windowsPrinterList, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -68,6 +68,8 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/026_internal_order_printing.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/027_print_agent_token_sql_editor_access.sql", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/main.go", projectRoot), "utf8"),
+    readFile(new URL("agents/liist-print-agent/windows-agent.ps1", projectRoot), "utf8"),
+    readFile(new URL("agents/liist-print-agent/windows-list-printers.ps1", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -281,6 +283,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(printAgentMain, /claim_next_print_job/);
   assert.match(printAgentMain, /complete_print_job/);
   assert.match(printAgentMain, /LIIST_PRINT_COMMAND/);
+  assert.match(printAgentMain, /LIIST_PRINTER_NAME/);
+  assert.match(windowsPrintAgent, /Get-Printer/);
+  assert.match(windowsPrintAgent, /PrinterName/);
+  assert.match(windowsPrintAgent, /claim_next_print_job/);
+  assert.match(windowsPrintAgent, /complete_print_job/);
+  assert.match(windowsPrinterList, /Get-Printer/);
   const commandCatalogPage = await readFile(new URL("app/comanda/page.tsx", projectRoot), "utf8");
   assert.match(commandCatalogPage, /CatalogApplication orderChannel="internal"/);
   assert.match(commandCatalogPage, /get_operational_workspace_by_store/);

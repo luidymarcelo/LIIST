@@ -22,6 +22,7 @@ type config struct {
 	token       string
 	outputDir   string
 	printCmd    string
+	printerName string
 	interval    time.Duration
 	agentName   string
 }
@@ -61,6 +62,7 @@ func loadConfig() (config, error) {
 		token:       os.Getenv("LIIST_PRINT_AGENT_TOKEN"),
 		outputDir:   firstNonEmpty(os.Getenv("LIIST_PRINT_OUTPUT_DIR"), "print-outbox"),
 		printCmd:    os.Getenv("LIIST_PRINT_COMMAND"),
+		printerName: os.Getenv("LIIST_PRINTER_NAME"),
 		interval:    time.Duration(intervalSeconds) * time.Second,
 		agentName:   firstNonEmpty(os.Getenv("LIIST_PRINT_AGENT_NAME"), hostname()),
 	}
@@ -90,7 +92,7 @@ func runOnce(cfg config) error {
 	}
 
 	if cfg.printCmd != "" {
-		if err := runPrintCommand(cfg.printCmd, filePath); err != nil {
+		if err := runPrintCommand(cfg.printCmd, filePath, cfg.printerName); err != nil {
 			_ = completeJob(cfg, *claim.JobID, false, err.Error())
 			return err
 		}
@@ -201,8 +203,9 @@ func formatTicket(payload map[string]any) string {
 	return b.String()
 }
 
-func runPrintCommand(template string, filePath string) error {
+func runPrintCommand(template string, filePath string, printerName string) error {
 	command := strings.ReplaceAll(template, "{file}", filePath)
+	command = strings.ReplaceAll(command, "{printer}", printerName)
 	if runtime.GOOS == "windows" {
 		return exec.Command("cmd", "/C", command).Run()
 	}
