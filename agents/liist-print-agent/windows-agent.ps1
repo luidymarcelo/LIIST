@@ -30,7 +30,34 @@ function Invoke-LiistRpc {
   )
 
   $json = $Body | ConvertTo-Json -Depth 20
-  Invoke-RestMethod -Method Post -Uri "$SupabaseUrl/rest/v1/rpc/$Name" -Headers $Headers -Body $json
+  try {
+    Invoke-RestMethod -Method Post -Uri "$SupabaseUrl/rest/v1/rpc/$Name" -Headers $Headers -Body $json
+  } catch {
+    $status = ""
+    $details = ""
+    if ($_.Exception.Response) {
+      try {
+        $status = "HTTP $([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusDescription)"
+        $stream = $_.Exception.Response.GetResponseStream()
+        if ($stream) {
+          $reader = New-Object System.IO.StreamReader($stream)
+          $details = $reader.ReadToEnd()
+        }
+      } catch {
+        $details = ""
+      }
+    }
+    if ([string]::IsNullOrWhiteSpace($details) -and $_.ErrorDetails.Message) {
+      $details = $_.ErrorDetails.Message
+    }
+    if ([string]::IsNullOrWhiteSpace($status)) {
+      $status = $_.Exception.Message
+    }
+    if ([string]::IsNullOrWhiteSpace($details)) {
+      throw "RPC $Name falhou: $status"
+    }
+    throw "RPC $Name falhou: $status - $details"
+  }
 }
 
 function Format-LiistMoney {

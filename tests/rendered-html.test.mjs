@@ -288,6 +288,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(windowsPrintAgent, /PrinterName/);
   assert.match(windowsPrintAgent, /claim_next_print_job/);
   assert.match(windowsPrintAgent, /complete_print_job/);
+  assert.match(windowsPrintAgent, /RPC \$Name falhou/);
   assert.match(windowsPrinterList, /Get-Printer/);
   const commandCatalogPage = await readFile(new URL("app/comanda/page.tsx", projectRoot), "utf8");
   assert.match(commandCatalogPage, /CatalogApplication orderChannel="internal"/);
