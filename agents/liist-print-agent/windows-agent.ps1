@@ -29,9 +29,13 @@ function Invoke-LiistRpc {
     [Parameter(Mandatory = $true)][hashtable]$Body
   )
 
-  $json = $Body | ConvertTo-Json -Depth 20
+  $json = $Body | ConvertTo-Json -Depth 20 -Compress
+  if ([string]::IsNullOrWhiteSpace($json)) {
+    throw "RPC $Name falhou: corpo JSON vazio"
+  }
+  $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($json)
   try {
-    Invoke-RestMethod -Method Post -Uri "$SupabaseUrl/rest/v1/rpc/$Name" -Headers $Headers -Body $json
+    Invoke-RestMethod -Method Post -Uri "$SupabaseUrl/rest/v1/rpc/$Name" -Headers $Headers -Body $bodyBytes -ContentType "application/json; charset=utf-8"
   } catch {
     $status = ""
     $details = ""
@@ -199,15 +203,14 @@ while ($true) {
         Send-LiistPrint -Path (Resolve-Path $filePath).Path
         Invoke-LiistRpc -Name "complete_print_job" -Body @{
           p_token = $AgentToken
-          p_job_id = $claim.job_id
+          p_job_id = [string]$claim.job_id
           p_success = $true
-          p_error = $null
         } | Out-Null
         Write-Host "Comanda $($claim.payload.order_code) impressa em $filePath"
       } catch {
         Invoke-LiistRpc -Name "complete_print_job" -Body @{
           p_token = $AgentToken
-          p_job_id = $claim.job_id
+          p_job_id = [string]$claim.job_id
           p_success = $false
           p_error = $_.Exception.Message
         } | Out-Null
