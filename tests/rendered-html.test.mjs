@@ -492,7 +492,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /workbook\.getWorksheet\("Adicionais"\)/);
   assert.match(adminPage, /max_selections: group\.max/);
   assert.doesNotMatch(adminPage, /ADDITION_IMPORT_HEADERS = \["Grupo", "Produto", "M\\u00e1ximo"/);
-  assert.match(adminPage, /companySettingsSection === "additions"/);
+  assert.doesNotMatch(adminPage, /companySettingsSection === "additions"/);
+  assert.match(adminPage, /type CompanySettingsSection = "overview" \| "identity" \| "access" \| "parameters" \| "danger"/);
   assert.match(adminPage, /createOptionGroup/);
   assert.match(adminPage, /async function resolveBranchControlsStock/);
   assert.match(adminPage, /storeParameterResult\.data\?\.parameter_value \?\? tenantParameterResult\.data\?\.parameter_value/);

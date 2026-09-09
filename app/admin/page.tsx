@@ -165,7 +165,7 @@ type OrderMode = "whatsapp" | "internal" | "both";
 type BranchOrderMode = "inherit" | OrderMode;
 type PrintMode = "disabled" | "manual" | "automatic" | "manual_and_automatic";
 type BranchPrintMode = "inherit" | PrintMode;
-type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
+type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type AdminCompanyIdentityRow = {
   tenant_id: string;
@@ -3525,31 +3525,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     />
                   </div>
                 ) : null}
-                {companySettingsSection === "additions" ? (
-                  <div className="settings-additions-grid">
-                    <section className="admin-form-panel company-settings-panel additions-settings-panel">
-                      <div className="branch-form-heading"><div><span>Estrutura do catálogo</span><h2>Grupos de adicionais</h2><p>Crie os grupos que organizam os adicionais. Depois, vincule os itens aos produtos pela aba Adicionais da planilha.</p></div><Plus size={21} /></div>
-                      <form className="inline-form additions-group-form" onSubmit={createAdditionGroup}>
-                        <label>Nome do grupo<input value={additionGroupName} onChange={(event) => setAdditionGroupName(event.target.value)} placeholder="Ex.: Tamanho, acompanhamentos ou complementos" required /></label>
-                        <label>Máximo<input type="number" min="1" value={additionGroupMax} onChange={(event) => setAdditionGroupMax(event.target.value)} required /></label>
-                        <label className="checkbox-field"><input type="checkbox" checked={additionGroupRequired} onChange={(event) => setAdditionGroupRequired(event.target.checked)} /><span>Obrigatório para o cliente</span></label>
-                        <button className="admin-primary" type="submit" disabled={savingAdditionGroup}><Plus size={16} /> {savingAdditionGroup ? "Salvando..." : "Adicionar grupo"}</button>
-                      </form>
-                      <div className="admin-list additions-group-list">
-                        {optionGroups.map((group) => <div className="admin-list-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · até {group.max_selections} · {group.option_group_items?.length ?? 0} adicional(is) cadastrado(s)</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>)}
-                        {!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado para esta filial.</p> : null}
-                      </div>
-                    </section>
-                    <section className="admin-form-panel company-settings-panel measurement-units-settings-panel">
-                      <div className="branch-form-heading"><div><span>Referência do catálogo</span><h2>Unidades de medida</h2><p>Cadastre o código usado em integrações e o nome exibido nos produtos e na planilha.</p></div><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={19} /></button></div>
-                      <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
-                      <div className="admin-list catalog-scroll-list measurement-unit-list">
-                        {visibleMeasurementUnits.map(renderMeasurementUnitRow)}
-                        {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
-                      </div>
-                    </section>
-                  </div>
-                ) : null}
                 {companySettingsSection === "identity" ? (
                   <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
                     <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca da empresa</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
@@ -3850,7 +3825,6 @@ function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyP
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
     { id: "identity", label: "Identidade", icon: Palette },
     ...(isCompanyPortal ? [] : [{ id: "access" as const, label: "Acesso", icon: KeyRound }]),
-    ...(isCompanyPortal ? [{ id: "additions" as const, label: "Adicionais", icon: Plus }] : []),
     { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
     ...(isCompanyPortal ? [] : [{ id: "danger" as const, label: "Exclusão", icon: TriangleAlert }]),
   ];
