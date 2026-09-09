@@ -7487,6 +7487,54 @@ img {
   white-space: nowrap;
 }
 
+.print-agent-branch-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 14px 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.print-agent-branch-list > div {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.print-agent-branch-list strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.print-agent-branch-list small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.print-agent-branch-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+}
+
+.print-agent-branch-list article > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.print-agent-branch-list .admin-secondary {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
 @keyframes parameter-reveal {
   from {
     opacity: 0;
@@ -7595,6 +7643,18 @@ img {
 
   .print-agent-download-panel .admin-secondary {
     grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .print-agent-branch-list {
+    margin: 0 12px 12px;
+  }
+
+  .print-agent-branch-list article {
+    grid-template-columns: 1fr;
+  }
+
+  .print-agent-branch-list .admin-secondary {
     width: 100%;
   }
 

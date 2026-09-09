@@ -3646,9 +3646,13 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         {isBusinessPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : isBranchPortal ? tenant?.name ?? "Painel da filial" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Empresa e operação" : isBranchPortal ? "Gestão da filial" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Catálogo, equipe e mesas em áreas separadas." : isBranchPortal ? "Atualize o catálogo somente da filial autorizada." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
         {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => {
+          const nextSettingsSection: CompanySettingsSection = companySettingsSection === "overview" || companySettingsSection === "access" || companySettingsSection === "parameters" || companySettingsSection === "danger" ? "identity" : companySettingsSection;
           setCompanyPortalSection(section);
           setMessage("");
-          if (section === "settings" && settingsLoadedTenantId !== tenant.id) void openCompanySettings(tenant.id, companySettingsSection === "overview" ? "identity" : companySettingsSection);
+          if (section === "settings") {
+            if (nextSettingsSection !== companySettingsSection) setCompanySettingsSection(nextSettingsSection);
+            if (settingsLoadedTenantId !== tenant.id) void openCompanySettings(tenant.id, nextSettingsSection);
+          }
         }} /> : null}
 
         {isCompanyPortal && tenant && (companyPortalSection === "team" || companyPortalSection === "tables") ? (
@@ -3744,7 +3748,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     </>}
                   </form>
                 ) : null}
-                {companySettingsSection === "parameters" ? (
+                {companySettingsSection === "parameters" && !isCompanyPortal ? (
                   <ParameterWorkspace
                     tenant={tenant}
                     branches={branches}
@@ -4023,7 +4027,7 @@ function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyP
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
     { id: "identity", label: "Identidade", icon: Palette },
     ...(isCompanyPortal ? [] : [{ id: "access" as const, label: "Acesso", icon: KeyRound }]),
-    { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
+    ...(isCompanyPortal ? [] : [{ id: "parameters" as const, label: "Parâmetros", icon: SlidersHorizontal }]),
     ...(isCompanyPortal ? [] : [{ id: "danger" as const, label: "Exclusão", icon: TriangleAlert }]),
   ];
 
@@ -4495,6 +4499,24 @@ function ParameterWorkspace({
                       </div>
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedPrintModeBranchCount} {inheritedPrintModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedPrintModeBranchCount > 0 ? `${branches.length - inheritedPrintModeBranchCount} com impressão própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    {branches.length ? (
+                      <section className="print-agent-branch-list">
+                        <div><strong>Instalador por filial</strong><small>Baixe no computador conectado à impressora da filial. O instalador já leva o token e guia a escolha da impressora.</small></div>
+                        {branches.map((branch) => {
+                          const branchPrintMode = branchPrintModes[branch.id] ?? "inherit";
+                          const effectivePrintMode = branchPrintMode === "inherit" ? companyPrintMode : branchPrintMode;
+                          return (
+                            <article key={branch.id}>
+                              <span><strong>{branch.name}</strong><small>{branchPrintMode === "inherit" ? `Herdando ${printModeLabel(companyPrintMode)}` : printModeLabel(effectivePrintMode)}</small></span>
+                              <button className="admin-secondary" type="button" onClick={() => onDownloadPrintAgentInstaller(branch)} disabled={Boolean(generatingPrintInstallerId)}>
+                                <Download size={16} />
+                                {generatingPrintInstallerId === branch.id ? "Gerando..." : "Baixar"}
+                              </button>
+                            </article>
+                          );
+                        })}
+                      </section>
+                    ) : null}
                     <footer className="parameter-form-footer"><span>Usado somente em pedidos por comanda interna.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>

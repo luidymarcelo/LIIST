@@ -180,6 +180,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /function PlatformAdminSidebar/);
   assert.match(adminPage, /function CompanySettingsNav/);
   assert.match(adminPage, /companySettingsSection === "parameters"/);
+  assert.match(adminPage, /isCompanyPortal \? \[\] : \[\{ id: "parameters" as const/);
+  assert.match(adminPage, /companySettingsSection === "parameters" && !isCompanyPortal/);
   assert.match(adminPage, /function ParameterWorkspace/);
   assert.match(adminPage, /type ParameterScope = "company" \| "branch"/);
   assert.match(adminPage, /saveBranchParameters/);
@@ -267,6 +269,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /setParameterScope\(\(current\) => isSameTenant \? current : "company"\)/);
   assert.match(adminPage, /printAgentInstallerScript/);
   assert.match(adminPage, /Baixar instalador/);
+  assert.match(adminPage, /Instalador por filial/);
+  assert.match(pageStyles, /\.print-agent-branch-list/);
   assert.match(adminPage, /create_print_agent_token/);
   assert.match(adminPage, /raw\.githubusercontent\.com\/luidymarcelo\/LIIST\/main\/agents\/liist-print-agent\/windows-agent\.ps1/);
   assert.match(adminPage, /Get-Printer/);
@@ -568,7 +572,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
   assert.match(adminPage, /settingsLoadedTenantId !== tenant\.id/);
-  assert.match(adminPage, /companySettingsSection === "overview" \? "identity" : companySettingsSection/);
+  assert.match(adminPage, /const nextSettingsSection: CompanySettingsSection = companySettingsSection === "overview"/);
   assert.match(adminPage, /isCompanyPortal\s*\?\s*Promise\.resolve\(\{ data: \{ account: null \}, error: null \}\)/);
   assert.match(companyPortalSource, /CompanyPortalSection = "catalog" \| "team" \| "tables" \| "settings"/);
   assert.match(companyPortalSource, />Configurações</);
