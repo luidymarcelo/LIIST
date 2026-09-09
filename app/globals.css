@@ -569,7 +569,8 @@
 .waiter-order-list li > button,
 .kitchen-ticket li > button,
 .workflow-text-action,
-.workflow-close-action {
+.workflow-close-action,
+.workflow-print-action {
   min-height: 30px;
   padding: 0 9px;
   border: 1px solid #b9d6c4;
@@ -584,6 +585,34 @@
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+.workflow-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.workflow-order-actions.compact {
+  gap: 5px;
+}
+
+.workflow-print-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-color: var(--line);
+  background: #fff;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+
+.workflow-print-action:hover:not(:disabled) {
+  border-color: #8fbfa2;
+  background: #f7fcf9;
 }
 
 .waiter-order-list article > p {
@@ -7068,6 +7097,11 @@ img {
 .parameter-item-icon.stock {
   background: rgba(154, 103, 0, 0.1);
   color: #8a5d00;
+}
+
+.parameter-item-icon.print {
+  background: rgba(49, 82, 139, 0.1);
+  color: #31528b;
 }
 
 .parameter-item-name {

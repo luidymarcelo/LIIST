@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printAgentMain, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -65,6 +65,8 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/023_operational_workflow.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/024_company_owner_identity.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/025_company_owner_tenant_read_policy.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/026_internal_order_printing.sql", projectRoot), "utf8"),
+    readFile(new URL("agents/liist-print-agent/main.go", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -194,7 +196,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Valor por km/);
   assert.match(adminPage, /branch-delivery-fee-type/);
   assert.match(adminPage, /Controle de estoque/);
-  assert.match(adminPage, />7 parâmetros</);
+  assert.match(adminPage, />8 parâmetros</);
   assert.match(adminPage, /ORDER_MODE_PARAMETER_KEY = "order_mode"/);
   assert.match(adminPage, /INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog"/);
   assert.match(adminPage, /Modo de pedidos/);
@@ -251,11 +253,31 @@ test("keeps the growth surfaces present", async () => {
   assert.match(ordersPage, /Liberar mesa/);
   assert.match(ordersPage, /payment_status/);
   assert.match(ordersPage, /billing_status/);
+  assert.match(adminPage, /PRINT_MODE_PARAMETER_KEY = "internal_print_mode"/);
+  assert.match(adminPage, /Configurações de impressão/);
+  assert.match(adminPage, /printModeLabel/);
+  assert.match(adminPage, /onCompanyPrintModeChange/);
+  assert.match(adminPage, /onBranchPrintModeChange/);
+  assert.match(ordersPage, /type PrintMode = "disabled" \| "manual" \| "automatic" \| "manual_and_automatic"/);
+  assert.match(ordersPage, /enqueue_internal_order_print/);
+  assert.match(ordersPage, /workflow-print-action/);
+  assert.match(ordersPage, /canPrintManual/);
   assert.match(internalOrdersSql, /create or replace function public\.create_internal_order/);
   assert.match(internalOrdersSql, /order_channel/);
   assert.match(internalOrdersSql, /payment_status/);
   assert.match(internalOrdersSql, /billing_status/);
   assert.match(internalOrdersSql, /v_order_mode not in \('internal', 'both'\)/);
+  assert.match(internalPrintSql, /create table if not exists public\.print_jobs/);
+  assert.match(internalPrintSql, /create table if not exists public\.print_agent_tokens/);
+  assert.match(internalPrintSql, /create or replace function public\.enqueue_internal_order_print/);
+  assert.match(internalPrintSql, /create or replace function public\.claim_next_print_job/);
+  assert.match(internalPrintSql, /create or replace function public\.complete_print_job/);
+  assert.match(internalPrintSql, /create or replace function public\.create_print_agent_token/);
+  assert.match(internalPrintSql, /create trigger enqueue_automatic_internal_order_print/);
+  assert.match(printAgentMain, /LIIST_PRINT_AGENT_TOKEN/);
+  assert.match(printAgentMain, /claim_next_print_job/);
+  assert.match(printAgentMain, /complete_print_job/);
+  assert.match(printAgentMain, /LIIST_PRINT_COMMAND/);
   const commandCatalogPage = await readFile(new URL("app/comanda/page.tsx", projectRoot), "utf8");
   assert.match(commandCatalogPage, /CatalogApplication orderChannel="internal"/);
   assert.match(commandCatalogPage, /get_operational_workspace_by_store/);

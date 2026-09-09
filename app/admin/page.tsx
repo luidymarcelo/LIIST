@@ -24,6 +24,7 @@ import {
   Pencil,
   Plus,
   Power,
+  Printer,
   RefreshCw,
   Save,
   Search,
@@ -163,6 +164,8 @@ type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
 type OrderMode = "whatsapp" | "internal" | "both";
 type BranchOrderMode = "inherit" | OrderMode;
+type PrintMode = "disabled" | "manual" | "automatic" | "manual_and_automatic";
+type BranchPrintMode = "inherit" | PrintMode;
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type AdminCompanyIdentityRow = {
@@ -194,6 +197,7 @@ const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
 const ADDITIONS_PARAMETER_KEY = "enable_additions";
 const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
+const PRINT_MODE_PARAMETER_KEY = "internal_print_mode";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 const COVER_NOTE_MAX_LENGTH = 160;
@@ -475,6 +479,19 @@ function orderModeLabel(mode: OrderMode) {
   return "WhatsApp";
 }
 
+function printModeValue(value: unknown, fallback: PrintMode = "disabled"): PrintMode {
+  return value === "manual" || value === "automatic" || value === "manual_and_automatic" || value === "disabled"
+    ? value
+    : fallback;
+}
+
+function printModeLabel(mode: PrintMode) {
+  if (mode === "manual") return "Manual";
+  if (mode === "automatic") return "Automática";
+  if (mode === "manual_and_automatic") return "Manual + automática";
+  return "Desativada";
+}
+
 function productImageLimitValue(value: unknown, fallback = 1) {
   const parsed = Number(value);
   return Number.isInteger(parsed)
@@ -570,6 +587,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [branchOrderModes, setBranchOrderModes] = useState<Record<string, BranchOrderMode>>({});
   const [companyCompactInternalCatalog, setCompanyCompactInternalCatalog] = useState(true);
   const [branchCompactInternalCatalogModes, setBranchCompactInternalCatalogModes] = useState<Record<string, CompactInternalCatalogMode>>({});
+  const [companyPrintMode, setCompanyPrintMode] = useState<PrintMode>("disabled");
+  const [branchPrintModes, setBranchPrintModes] = useState<Record<string, BranchPrintMode>>({});
   const [activeControlsStock, setActiveControlsStock] = useState(true);
   const [activeEnablesAdditions, setActiveEnablesAdditions] = useState(false);
   const [savingParameters, setSavingParameters] = useState(false);
@@ -908,7 +927,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     }
     const { data: branch } = await supabase.from("stores").select("tenant_id").eq("id", branchId).maybeSingle();
     if (!branch?.tenant_id) return;
-    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY];
+    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY];
     const [tenantParameterResult, storeParameterResult] = await Promise.all([
       supabase.from("tenant_parameters").select("parameter_key, parameter_value").eq("tenant_id", branch.tenant_id).in("parameter_key", parameterKeys),
       supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", parameterKeys),
@@ -1569,10 +1588,12 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setCompanyEnablesAdditions(false);
     setCompanyOrderMode("whatsapp");
     setCompanyCompactInternalCatalog(true);
+    setCompanyPrintMode("disabled");
     setActiveEnablesAdditions(false);
     setBranchStockControlModes({});
     setBranchOrderModes({});
     setBranchCompactInternalCatalogModes({});
+    setBranchPrintModes({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -1589,7 +1610,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult, tenantIdentityResult] = await Promise.all([
@@ -1602,7 +1623,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY]),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY]),
       branchParameterRequest,
       supabase
         .from("tenants")
@@ -1643,6 +1664,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setCompanyEnablesAdditions(parameterBoolean(tenantParameters.get(ADDITIONS_PARAMETER_KEY), false));
     setCompanyOrderMode(orderModeValue(tenantParameters.get(ORDER_MODE_PARAMETER_KEY)));
     setCompanyCompactInternalCatalog(parameterBoolean(tenantParameters.get(INTERNAL_CATALOG_COMPACT_PARAMETER_KEY), true));
+    setCompanyPrintMode(printModeValue(tenantParameters.get(PRINT_MODE_PARAMETER_KEY)));
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -1683,6 +1705,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         .filter((row) => row.parameter_key === INTERNAL_CATALOG_COMPACT_PARAMETER_KEY)
         .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
     );
+    const printModeParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === PRINT_MODE_PARAMETER_KEY)
+        .map((row) => [row.store_id, printModeValue(row.parameter_value)] as const),
+    );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
@@ -1722,6 +1749,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       compactInternalCatalogParameterByStore.has(branch.id)
         ? compactInternalCatalogParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
+    ])));
+    setBranchPrintModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      printModeParameterByStore.get(branch.id) ?? "inherit",
     ])));
   }
 
@@ -1788,6 +1819,13 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         is_public: true,
         updated_at: updatedAt,
       },
+      {
+        tenant_id: tenant.id,
+        parameter_key: PRINT_MODE_PARAMETER_KEY,
+        parameter_value: companyPrintMode,
+        is_public: false,
+        updated_at: updatedAt,
+      },
     ], { onConflict: "tenant_id,parameter_key" });
 
     if (tenantParameterError) {
@@ -1824,6 +1862,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     const additionsMode = branchAdditionsModes[branch.id] ?? "inherit";
     const orderMode = branchOrderModes[branch.id] ?? "inherit";
     const compactInternalCatalogMode = branchCompactInternalCatalogModes[branch.id] ?? "inherit";
+    const printMode = branchPrintModes[branch.id] ?? "inherit";
     const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
@@ -1928,8 +1967,21 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
+    const printModeParameterRequest = printMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", PRINT_MODE_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: PRINT_MODE_PARAMETER_KEY,
+          parameter_value: printMode,
+          is_public: false,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error ?? additionsParameterRequest.error ?? orderModeParameterRequest.error ?? compactInternalCatalogParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error ?? additionsParameterRequest.error ?? orderModeParameterRequest.error ?? compactInternalCatalogParameterRequest.error ?? printModeParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -2227,6 +2279,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setBranchStockControlModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchAdditionsModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchOrderModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchPrintModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
     setShowBranchForm(false);
@@ -3545,6 +3598,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     branchOrderModes={branchOrderModes}
                     companyCompactInternalCatalog={companyCompactInternalCatalog}
                     branchCompactInternalCatalogModes={branchCompactInternalCatalogModes}
+                    companyPrintMode={companyPrintMode}
+                    branchPrintModes={branchPrintModes}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -3566,6 +3621,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     onBranchOrderModeChange={(branchId, mode) => setBranchOrderModes((current) => ({ ...current, [branchId]: mode }))}
                     onCompanyCompactInternalCatalogChange={setCompanyCompactInternalCatalog}
                     onBranchCompactInternalCatalogModeChange={(branchId, mode) => setBranchCompactInternalCatalogModes((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyPrintModeChange={setCompanyPrintMode}
+                    onBranchPrintModeChange={(branchId, mode) => setBranchPrintModes((current) => ({ ...current, [branchId]: mode }))}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -4075,6 +4132,8 @@ function ParameterWorkspace({
   branchOrderModes,
   companyCompactInternalCatalog,
   branchCompactInternalCatalogModes,
+  companyPrintMode,
+  branchPrintModes,
   loading,
   saving,
   onScopeChange,
@@ -4096,6 +4155,8 @@ function ParameterWorkspace({
   onBranchOrderModeChange,
   onCompanyCompactInternalCatalogChange,
   onBranchCompactInternalCatalogModeChange,
+  onCompanyPrintModeChange,
+  onBranchPrintModeChange,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -4120,6 +4181,8 @@ function ParameterWorkspace({
   branchOrderModes: Record<string, BranchOrderMode>;
   companyCompactInternalCatalog: boolean;
   branchCompactInternalCatalogModes: Record<string, CompactInternalCatalogMode>;
+  companyPrintMode: PrintMode;
+  branchPrintModes: Record<string, BranchPrintMode>;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -4141,6 +4204,8 @@ function ParameterWorkspace({
   onBranchOrderModeChange: (branchId: string, mode: BranchOrderMode) => void;
   onCompanyCompactInternalCatalogChange: (enabled: boolean) => void;
   onBranchCompactInternalCatalogModeChange: (branchId: string, mode: CompactInternalCatalogMode) => void;
+  onCompanyPrintModeChange: (mode: PrintMode) => void;
+  onBranchPrintModeChange: (branchId: string, mode: BranchPrintMode) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -4161,6 +4226,8 @@ function ParameterWorkspace({
   const activeOrderModeValue = activeOrderMode === "inherit" ? companyOrderMode : activeOrderMode;
   const activeCompactInternalCatalogMode = activeBranch ? branchCompactInternalCatalogModes[activeBranch.id] ?? "inherit" : "inherit";
   const activeCompactInternalCatalog = activeCompactInternalCatalogMode === "inherit" ? companyCompactInternalCatalog : activeCompactInternalCatalogMode === "enabled";
+  const activePrintMode = activeBranch ? branchPrintModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activePrintModeValue = activePrintMode === "inherit" ? companyPrintMode : activePrintMode;
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
   const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
@@ -4168,6 +4235,7 @@ function ParameterWorkspace({
   const inheritedAdditionsBranchCount = branches.filter((branch) => (branchAdditionsModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedOrderModeBranchCount = branches.filter((branch) => (branchOrderModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedCompactInternalCatalogBranchCount = branches.filter((branch) => (branchCompactInternalCatalogModes[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedPrintModeBranchCount = branches.filter((branch) => (branchPrintModes[branch.id] ?? "inherit") === "inherit").length;
   const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
@@ -4182,7 +4250,7 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>7 parâmetros</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>8 parâmetros</span></header>
             {scope === "company" ? (
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
@@ -4236,6 +4304,24 @@ function ParameterWorkspace({
                     <ParameterToggle checked={companyCompactInternalCatalog} title="Usar visual compacto em comandas internas" description="Nos links de mesa e equipe, mantém só capa e foto de perfil antes dos produtos." onChange={onCompanyCompactInternalCatalogChange} />
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedCompactInternalCatalogBranchCount} {inheritedCompactInternalCatalogBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedCompactInternalCatalogBranchCount > 0 ? `${branches.length - inheritedCompactInternalCatalogBranchCount} com visual próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
                     <footer className="parameter-form-footer"><span>Afeta somente os links internos de mesa e equipe.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon print"><Printer size={19} /></span><span className="parameter-item-name"><strong>Configurações de impressão</strong><small>Comanda interna · Padrão da empresa</small></span><strong className="parameter-value-badge">{printModeLabel(companyPrintMode)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Saída da comanda interna</legend>
+                      <div className="parameter-mode-options parameter-print-options">
+                        <label className={companyPrintMode === "disabled" ? "selected" : ""}><input type="radio" name="company-print-mode" value="disabled" checked={companyPrintMode === "disabled"} onChange={() => onCompanyPrintModeChange("disabled")} /><X size={18} /><span><strong>Desativada</strong><small>Sem fila de impressão</small></span></label>
+                        <label className={companyPrintMode === "manual" ? "selected" : ""}><input type="radio" name="company-print-mode" value="manual" checked={companyPrintMode === "manual"} onChange={() => onCompanyPrintModeChange("manual")} /><Printer size={18} /><span><strong>Manual</strong><small>Botão para imprimir ou reimprimir</small></span></label>
+                        <label className={companyPrintMode === "automatic" ? "selected" : ""}><input type="radio" name="company-print-mode" value="automatic" checked={companyPrintMode === "automatic"} onChange={() => onCompanyPrintModeChange("automatic")} /><RefreshCw size={18} /><span><strong>Automática</strong><small>Agente local imprime ao receber</small></span></label>
+                        <label className={companyPrintMode === "manual_and_automatic" ? "selected" : ""}><input type="radio" name="company-print-mode" value="manual_and_automatic" checked={companyPrintMode === "manual_and_automatic"} onChange={() => onCompanyPrintModeChange("manual_and_automatic")} /><SlidersHorizontal size={18} /><span><strong>Ambas</strong><small>Imprime automático e permite reimprimir</small></span></label>
+                      </div>
+                    </fieldset>
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedPrintModeBranchCount} {inheritedPrintModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedPrintModeBranchCount > 0 ? `${branches.length - inheritedPrintModeBranchCount} com impressão própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Usado somente em pedidos por comanda interna.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
@@ -4366,6 +4452,24 @@ function ParameterWorkspace({
                       </div>
                     </fieldset>
                     <footer className="parameter-form-footer"><span>Afeta somente os links internos de {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon print"><Printer size={19} /></span><span className="parameter-item-name"><strong>Configurações de impressão</strong><small>Comanda interna · {activePrintMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{printModeLabel(activePrintModeValue)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Saída nesta filial</legend>
+                      <div className="parameter-mode-options parameter-print-options">
+                        <label className={activePrintMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="inherit" checked={activePrintMode === "inherit"} onChange={() => onBranchPrintModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>{printModeLabel(companyPrintMode)} da empresa</small></span></label>
+                        <label className={activePrintMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="disabled" checked={activePrintMode === "disabled"} onChange={() => onBranchPrintModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativada</strong><small>Sem impressão</small></span></label>
+                        <label className={activePrintMode === "manual" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="manual" checked={activePrintMode === "manual"} onChange={() => onBranchPrintModeChange(activeBranch.id, "manual")} /><Printer size={17} /><span><strong>Manual</strong><small>Botão no painel</small></span></label>
+                        <label className={activePrintMode === "automatic" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="automatic" checked={activePrintMode === "automatic"} onChange={() => onBranchPrintModeChange(activeBranch.id, "automatic")} /><RefreshCw size={17} /><span><strong>Automática</strong><small>Agente local</small></span></label>
+                        <label className={activePrintMode === "manual_and_automatic" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="manual_and_automatic" checked={activePrintMode === "manual_and_automatic"} onChange={() => onBranchPrintModeChange(activeBranch.id, "manual_and_automatic")} /><SlidersHorizontal size={17} /><span><strong>Ambas</strong><small>Automática + reimpressão</small></span></label>
+                      </div>
+                    </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
