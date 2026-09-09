@@ -3557,6 +3557,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const visibleAdditionGroups = useMemo(() => optionGroups.filter((group) => normalizeText(group.name).includes(normalizeText(additionGroupQuery))), [optionGroups, additionGroupQuery]);
   const visibleMeasurementUnits = useMemo(() => measurementUnits.filter((unit) => normalizeText(`${unit.code} ${unit.name}`).includes(normalizeText(measurementUnitQuery))), [measurementUnits, measurementUnitQuery]);
   const visibleProducts = useMemo(() => products.filter((product) => normalizeText(product.name).includes(normalizeText(productQuery))), [products, productQuery]);
+  const showAdditionGroupsCatalog = activeEnablesAdditions || optionGroups.length > 0;
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
   const productUnitIsRegistered = !productForm.unit || measurementUnits.some((unit) => normalizeText(unit.name) === normalizeText(productForm.unit));
@@ -3611,7 +3612,15 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           <div className={isBusinessPortal ? "company-portal-content" : "admin-console-content"}>
         {isBusinessPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : isBranchPortal ? tenant?.name ?? "Painel da filial" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Empresa e operação" : isBranchPortal ? "Gestão da filial" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Catálogo, equipe e mesas em áreas separadas." : isBranchPortal ? "Atualize o catálogo somente da filial autorizada." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
-        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => { setCompanyPortalSection(section); setMessage(""); if (section === "settings") void openCompanySettings(tenant.id, "identity"); }} /> : null}
+        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => {
+          setCompanyPortalSection(section);
+          setMessage("");
+          if (section === "settings") void openCompanySettings(tenant.id, "identity");
+          if (section === "catalog" && activeBranchId) {
+            void refreshBranchCatalog(activeBranchId);
+            void refreshActiveBranchParameters(activeBranchId);
+          }
+        }} /> : null}
 
         {isCompanyPortal && tenant && (companyPortalSection === "team" || companyPortalSection === "tables") ? (
           <CompanyOperations
@@ -3826,7 +3835,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
               <div className="catalog-management-actions"><button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
                 {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
                 {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
-              </button>{activeEnablesAdditions ? <button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button> : null}</div>
+              </button>{showAdditionGroupsCatalog ? <button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button> : null}</div>
             </section>
             {showOptionGroupForm ? (
               <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOptionGroupForm(false); }}>
@@ -3883,7 +3892,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                    return <div className="admin-list-row category-admin-row" key={category.id}><div className="catalog-entity-info"><strong>{category.name}</strong><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
                  })}{!visibleCategories.length ? <p className="admin-muted">Nenhuma categoria encontrada.</p> : null}</div>
                </section>
-               {activeEnablesAdditions ? <section className="admin-form-panel catalog-structure-panel addition-groups-overview-panel">
+               {showAdditionGroupsCatalog ? <section className="admin-form-panel catalog-structure-panel addition-groups-overview-panel">
                   <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
                   <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
                  <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div className="catalog-entity-info"><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>

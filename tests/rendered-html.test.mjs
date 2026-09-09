@@ -493,6 +493,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /INDIRECT\("'Produtos'!\$B\$2:\$B\$5000"\)/);
   assert.match(adminPage, /Novo grupo de adicionais/);
   assert.match(adminPage, /Grupos de adicionais/);
+  assert.match(adminPage, /const showAdditionGroupsCatalog = activeEnablesAdditions \|\| optionGroups\.length > 0/);
+  assert.match(adminPage, /section === "catalog" && activeBranchId/);
   assert.match(adminPage, /ADDITION_GROUP_HEADERS/);
   assert.match(adminPage, /ADDITION_GROUP_HEADERS = \["Grupo", "Obrigat\\u00f3rio", "M\\u00e1ximo", "Status", "Ordem"\]/);
   assert.match(adminPage, /ADDITION_IMPORT_HEADERS = \["Grupo", "Produto", "Adicional", "Acr\\u00e9scimo", "Status", "Ordem"\]/);
