@@ -269,8 +269,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /setParameterScope\(\(current\) => isSameTenant \? current : "company"\)/);
   assert.match(adminPage, /printAgentInstallerScript/);
   assert.match(adminPage, /Baixar instalador/);
-  assert.match(adminPage, /Instalador por filial/);
-  assert.match(pageStyles, /\.print-agent-branch-list/);
+  assert.match(adminPage, /liist-instalador-impressao-\$\{slugify\(branch\.name\) \|\| "filial"\}\.cmd/);
+  assert.match(adminPage, /certutil -f -decode/);
+  assert.match(adminPage, /ExecutionPolicy Bypass/);
+  assert.match(pageStyles, /\.parameter-compact-body\.print-agent-settings/);
+  assert.doesNotMatch(adminPage, /Instalador por filial/);
+  assert.doesNotMatch(pageStyles, /\.print-agent-branch-list/);
   assert.match(adminPage, /create_print_agent_token/);
   assert.match(adminPage, /raw\.githubusercontent\.com\/luidymarcelo\/LIIST\/main\/agents\/liist-print-agent\/windows-agent\.ps1/);
   assert.match(adminPage, /Get-Printer/);

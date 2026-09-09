@@ -402,6 +402,17 @@ function powershellSingleQuote(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+function base64Utf8(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function cmdSafeLabel(value: string) {
+  return value.replace(/[\r\n&<>|^]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function printAgentInstallerScript({
   supabaseUrl,
   anonKey,
@@ -421,7 +432,9 @@ function printAgentInstallerScript({
   const safeSupabaseUrl = powershellSingleQuote(supabaseUrl);
   const safeAnonKey = powershellSingleQuote(anonKey);
   const safeToken = powershellSingleQuote(token);
-  return `# Instalador do LIIST Print Agent
+  const cmdCompanyName = cmdSafeLabel(companyName) || "LIIST";
+  const cmdBranchName = cmdSafeLabel(branchName) || "Filial";
+  const powerShellScript = `# Instalador do LIIST Print Agent
 # Gerado pelo painel LIIST para ${companyName} / ${branchName}
 
 $ErrorActionPreference = "Stop"
@@ -472,41 +485,86 @@ function Read-PrinterName {
   return $printers[$selectedIndex - 1].Name
 }
 
-Write-Step "Instalando LIIST Print Agent"
-Write-Host "Empresa: $CompanyName"
-Write-Host "Filial: $BranchName"
-New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-New-Item -ItemType Directory -Path $OutboxDir -Force | Out-Null
+try {
+  Write-Step "Instalando LIIST Print Agent"
+  Write-Host "Empresa: $CompanyName"
+  Write-Host "Filial: $BranchName"
+  New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+  New-Item -ItemType Directory -Path $OutboxDir -Force | Out-Null
 
-Write-Step "Baixando agente oficial"
-Invoke-WebRequest -Uri $AgentUrl -OutFile $AgentPath -UseBasicParsing
+  Write-Step "Baixando agente oficial"
+  Invoke-WebRequest -Uri $AgentUrl -OutFile $AgentPath -UseBasicParsing
 
-$PrinterName = Read-PrinterName
-$PrinterArgument = if ([string]::IsNullOrWhiteSpace($PrinterName)) { "" } else { " -PrinterName '$($PrinterName.Replace("'", "''"))'" }
+  $PrinterName = Read-PrinterName
+  $PrinterArgument = if ([string]::IsNullOrWhiteSpace($PrinterName)) { "" } else { " -PrinterName '$($PrinterName.Replace("'", "''"))'" }
 
-$StartContent = @"
+  $StartContent = @"
 \`$ErrorActionPreference = "Stop"
 & '$($AgentPath.Replace("'", "''"))' -SupabaseUrl '$($SupabaseUrl.Replace("'", "''"))' -SupabaseAnonKey '$($SupabaseAnonKey.Replace("'", "''"))' -AgentToken '$($AgentToken.Replace("'", "''"))'$PrinterArgument -OutputDir '$($OutboxDir.Replace("'", "''"))' -IntervalSeconds 4
 "@
-Set-Content -Path $StartPath -Value $StartContent -Encoding UTF8
+  Set-Content -Path $StartPath -Value $StartContent -Encoding UTF8
 
-Write-Step "Configurando inicializacao automatica"
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File \`"$StartPath\`""
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel LeastPrivilege
-$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+  Write-Step "Configurando inicializacao automatica"
+  $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File \`"$StartPath\`""
+  $Trigger = New-ScheduledTaskTrigger -AtLogOn
+  $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel LeastPrivilege
+  $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+  Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
 
-Write-Step "Iniciando agente"
-Start-ScheduledTask -TaskName $TaskName
-Write-Host "Instalacao concluida." -ForegroundColor Green
-Write-Host "Tarefa do Windows: $TaskName"
-Write-Host "Pasta: $InstallDir"
-Write-Host "Comandas salvas em: $OutboxDir"
-Write-Host ""
-Write-Host "Para parar manualmente: Stop-ScheduledTask -TaskName '$TaskName'"
-Write-Host "Para remover: Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:\`$false"
-Read-Host "Pressione Enter para fechar"
+  Write-Step "Iniciando agente"
+  Start-ScheduledTask -TaskName $TaskName
+  $Task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  Write-Host "Instalacao concluida." -ForegroundColor Green
+  Write-Host "Tarefa do Windows: $TaskName"
+  if ($Task) { Write-Host "Status da tarefa: $($Task.State)" }
+  Write-Host "Pasta: $InstallDir"
+  Write-Host "Comandas salvas em: $OutboxDir"
+  Write-Host ""
+  Write-Host "Para testar agora, gere uma comanda interna para esta filial."
+  Write-Host "Para parar manualmente: Stop-ScheduledTask -TaskName '$TaskName'"
+  Write-Host "Para remover: Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:\`$false"
+} catch {
+  Write-Host ""
+  Write-Host "Falha na instalacao do LIIST Print Agent:" -ForegroundColor Red
+  Write-Host $_.Exception.Message -ForegroundColor Red
+  exit 1
+}
+`;
+  const encodedScript = base64Utf8(powerShellScript);
+  const encodedLines = encodedScript.match(/.{1,76}/g) ?? [];
+  return `@echo off
+setlocal EnableExtensions
+title Instalador LIIST Print Agent - ${cmdBranchName}
+echo.
+echo Instalador LIIST Print Agent
+echo Empresa: ${cmdCompanyName}
+echo Filial: ${cmdBranchName}
+echo.
+set "INSTALLER=%TEMP%\\liist-print-agent-installer-${taskSuffix}.ps1"
+set "INSTALLER_B64=%TEMP%\\liist-print-agent-installer-${taskSuffix}.b64"
+> "%INSTALLER_B64%" (
+${encodedLines.map((line) => `  echo ${line}`).join("\n")}
+)
+certutil -f -decode "%INSTALLER_B64%" "%INSTALLER%" >nul
+if errorlevel 1 (
+  echo.
+  echo Nao foi possivel preparar o instalador.
+  echo Verifique se o Windows permite executar certutil.
+  echo.
+  pause
+  exit /b 1
+)
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%INSTALLER%"
+set "EXITCODE=%ERRORLEVEL%"
+echo.
+if "%EXITCODE%"=="0" (
+  echo Instalador finalizado. O agente fica registrado no Windows e inicia junto com o usuario.
+) else (
+  echo Instalador finalizou com erro. A mensagem acima mostra o motivo.
+)
+echo.
+pause
+exit /b %EXITCODE%
 `;
 }
 
@@ -2182,12 +2240,12 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `liist-instalador-impressao-${slugify(branch.name) || "filial"}.ps1`;
+      link.download = `liist-instalador-impressao-${slugify(branch.name) || "filial"}.cmd`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setMessage(`Instalador de impressão de ${branch.name} baixado. Execute o arquivo no computador da loja.`);
+      setMessage(`Instalador de impressão de ${branch.name} baixado. Execute o arquivo .cmd no computador da loja.`);
     } catch (error) {
       setMessage(error instanceof Error ? `Não foi possível gerar o instalador: ${error.message}` : "Não foi possível gerar o instalador de impressão.");
     } finally {
@@ -4499,24 +4557,6 @@ function ParameterWorkspace({
                       </div>
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedPrintModeBranchCount} {inheritedPrintModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedPrintModeBranchCount > 0 ? `${branches.length - inheritedPrintModeBranchCount} com impressão própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    {branches.length ? (
-                      <section className="print-agent-branch-list">
-                        <div><strong>Instalador por filial</strong><small>Baixe no computador conectado à impressora da filial. O instalador já leva o token e guia a escolha da impressora.</small></div>
-                        {branches.map((branch) => {
-                          const branchPrintMode = branchPrintModes[branch.id] ?? "inherit";
-                          const effectivePrintMode = branchPrintMode === "inherit" ? companyPrintMode : branchPrintMode;
-                          return (
-                            <article key={branch.id}>
-                              <span><strong>{branch.name}</strong><small>{branchPrintMode === "inherit" ? `Herdando ${printModeLabel(companyPrintMode)}` : printModeLabel(effectivePrintMode)}</small></span>
-                              <button className="admin-secondary" type="button" onClick={() => onDownloadPrintAgentInstaller(branch)} disabled={Boolean(generatingPrintInstallerId)}>
-                                <Download size={16} />
-                                {generatingPrintInstallerId === branch.id ? "Gerando..." : "Baixar"}
-                              </button>
-                            </article>
-                          );
-                        })}
-                      </section>
-                    ) : null}
                     <footer className="parameter-form-footer"><span>Usado somente em pedidos por comanda interna.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
@@ -4654,7 +4694,7 @@ function ParameterWorkspace({
               <form className="parameter-compact-form" onSubmit={onSaveBranch}>
                 <details className="parameter-compact-item">
                   <summary><span className="parameter-item-icon print"><Printer size={19} /></span><span className="parameter-item-name"><strong>Configurações de impressão</strong><small>Comanda interna · {activePrintMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{printModeLabel(activePrintModeValue)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
+                  <div className="parameter-compact-body branch print-agent-settings">
                     <fieldset className="parameter-mode-fieldset">
                       <legend>Saída nesta filial</legend>
                       <div className="parameter-mode-options parameter-print-options">
@@ -4667,7 +4707,7 @@ function ParameterWorkspace({
                     </fieldset>
                     <section className="print-agent-download-panel">
                       <span><Printer size={18} /></span>
-                      <div><strong>Agente local desta filial</strong><small>Baixe no computador da loja. O instalador lista as impressoras, salva a configuração e inicia com o Windows.</small></div>
+                      <div><strong>Agente local desta filial</strong><small>Baixe e execute no computador conectado à impressora desta filial. Ele mostra as impressoras disponíveis, registra o agente no Windows e inicia automaticamente.</small></div>
                       <button className="admin-secondary" type="button" onClick={() => onDownloadPrintAgentInstaller(activeBranch)} disabled={Boolean(generatingPrintInstallerId)}>
                         <Download size={16} />
                         {generatingPrintInstallerId === activeBranch.id ? "Gerando..." : "Baixar instalador"}
