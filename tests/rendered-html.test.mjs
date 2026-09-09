@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printAgentMain, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, printAgentMain, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -66,6 +66,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/024_company_owner_identity.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/025_company_owner_tenant_read_policy.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/026_internal_order_printing.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/027_print_agent_token_sql_editor_access.sql", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/main.go", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
@@ -274,6 +275,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(internalPrintSql, /create or replace function public\.complete_print_job/);
   assert.match(internalPrintSql, /create or replace function public\.create_print_agent_token/);
   assert.match(internalPrintSql, /create trigger enqueue_automatic_internal_order_print/);
+  assert.match(printTokenSqlEditorSql, /auth\.uid\(\) is not null and not public\.can_manage_store/);
+  assert.match(printTokenSqlEditorSql, /grant execute on function public\.create_print_agent_token\(uuid, text\) to authenticated/);
   assert.match(printAgentMain, /LIIST_PRINT_AGENT_TOKEN/);
   assert.match(printAgentMain, /claim_next_print_job/);
   assert.match(printAgentMain, /complete_print_job/);

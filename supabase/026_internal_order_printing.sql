@@ -251,7 +251,7 @@ declare
   raw_token text;
   created_token public.print_agent_tokens%rowtype;
 begin
-  if auth.uid() is null or not public.can_manage_store(p_store_id) then
+  if auth.uid() is not null and not public.can_manage_store(p_store_id) then
     raise exception 'print agent token access denied';
   end if;
 
