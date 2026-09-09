@@ -644,6 +644,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
   const [companyPortalSection, setCompanyPortalSection] = useState<CompanyPortalSection>("catalog");
+  const [settingsLoadedTenantId, setSettingsLoadedTenantId] = useState("");
   const [additionGroupName, setAdditionGroupName] = useState("");
   const [additionGroupRequired, setAdditionGroupRequired] = useState(false);
   const [additionGroupMax, setAdditionGroupMax] = useState("1");
@@ -917,6 +918,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     if (!supabase) return;
     if (!nextSession) {
       setSession(null);
+      setSettingsLoadedTenantId("");
       setLoading(false);
       return;
     }
@@ -1667,6 +1669,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setTenant(null);
     setBranches([]);
     setActiveBranchId("");
+    setSettingsLoadedTenantId("");
     setShowBranchForm(false);
     setMessage("");
   }
@@ -1678,9 +1681,13 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     const selectedBranches = adminSelectedBranches.length
       ? adminSelectedBranches
       : branches.filter((branch) => branch.tenant_id === tenantId);
+    const isSameTenant = tenant?.id === tenantId;
+    const nextActiveBranchId = isSameTenant && activeBranchId && selectedBranches.some((branch) => branch.id === activeBranchId)
+      ? activeBranchId
+      : selectedBranches[0]?.id ?? "";
     setTenant(selectedTenant);
     setBranches(selectedBranches);
-    setActiveBranchId(selectedBranches[0]?.id ?? "");
+    setActiveBranchId(nextActiveBranchId);
     setAccessForm({ name: "", email: "", password: "" });
     setCompanyIdentity({
       isActive: selectedTenant?.is_active ?? true,
@@ -1704,7 +1711,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setCompanyOrderMode("whatsapp");
     setCompanyCompactInternalCatalog(true);
     setCompanyPrintMode("disabled");
-    setActiveEnablesAdditions(false);
     setBranchStockControlModes({});
     setBranchOrderModes({});
     setBranchCompactInternalCatalogModes({});
@@ -1717,7 +1723,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setDeleteConfirmation("");
     setAdminSection("settings");
     setCompanySettingsSection(section);
-    setParameterScope("company");
+    setParameterScope((current) => isSameTenant ? current : "company");
     setLoadingSettings(true);
     setMessage("");
 
@@ -1771,15 +1777,24 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     const tenantParameters = new Map(
       (tenantParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]),
     );
-    setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true));
-    setCompanyDeliveryFeeType(deliveryFeeTypeValue(tenantParameters.get(DELIVERY_FEE_TYPE_PARAMETER_KEY)));
-    setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
-    setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
-    setCompanyControlsStock(parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true));
-    setCompanyEnablesAdditions(parameterBoolean(tenantParameters.get(ADDITIONS_PARAMETER_KEY), false));
-    setCompanyOrderMode(orderModeValue(tenantParameters.get(ORDER_MODE_PARAMETER_KEY)));
-    setCompanyCompactInternalCatalog(parameterBoolean(tenantParameters.get(INTERNAL_CATALOG_COMPACT_PARAMETER_KEY), true));
-    setCompanyPrintMode(printModeValue(tenantParameters.get(PRINT_MODE_PARAMETER_KEY)));
+    const nextCompanyCalculatesDeliveryFee = parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true);
+    const nextCompanyDeliveryFeeType = deliveryFeeTypeValue(tenantParameters.get(DELIVERY_FEE_TYPE_PARAMETER_KEY));
+    const nextCompanyCatalogLayout = catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY));
+    const nextCompanyProductImageLimit = productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1);
+    const nextCompanyControlsStock = parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true);
+    const nextCompanyEnablesAdditions = parameterBoolean(tenantParameters.get(ADDITIONS_PARAMETER_KEY), false);
+    const nextCompanyOrderMode = orderModeValue(tenantParameters.get(ORDER_MODE_PARAMETER_KEY));
+    const nextCompanyCompactInternalCatalog = parameterBoolean(tenantParameters.get(INTERNAL_CATALOG_COMPACT_PARAMETER_KEY), true);
+    const nextCompanyPrintMode = printModeValue(tenantParameters.get(PRINT_MODE_PARAMETER_KEY));
+    setCompanyCalculatesDeliveryFee(nextCompanyCalculatesDeliveryFee);
+    setCompanyDeliveryFeeType(nextCompanyDeliveryFeeType);
+    setCompanyCatalogLayout(nextCompanyCatalogLayout);
+    setCompanyProductImageLimit(nextCompanyProductImageLimit);
+    setCompanyControlsStock(nextCompanyControlsStock);
+    setCompanyEnablesAdditions(nextCompanyEnablesAdditions);
+    setCompanyOrderMode(nextCompanyOrderMode);
+    setCompanyCompactInternalCatalog(nextCompanyCompactInternalCatalog);
+    setCompanyPrintMode(nextCompanyPrintMode);
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -1825,50 +1840,68 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         .filter((row) => row.parameter_key === PRINT_MODE_PARAMETER_KEY)
         .map((row) => [row.store_id, printModeValue(row.parameter_value)] as const),
     );
-    setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
+    const nextBranchFreightModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
         ? freightParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
-    ])));
-    setBranchDeliveryFeeTypeModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, FreightParameterMode>;
+    const nextBranchDeliveryFeeTypeModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       deliveryFeeTypeParameterByStore.get(branch.id) ?? "inherit",
-    ])));
-    setBranchCatalogLayouts(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, BranchDeliveryFeeTypeMode>;
+    const nextBranchCatalogLayouts = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       layoutParameterByStore.get(branch.id) ?? "inherit",
-    ])));
-    setBranchProductImageLimits(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, BranchCatalogLayoutMode>;
+    const nextBranchProductImageLimits = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       imageLimitParameterByStore.get(branch.id) ?? "inherit",
-    ])));
-    setBranchStockControlModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, ProductImageLimitMode>;
+    const nextBranchStockControlModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       stockControlParameterByStore.has(branch.id)
         ? stockControlParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
-    ])));
-    setBranchAdditionsModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, StockControlMode>;
+    const nextBranchAdditionsModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       additionsParameterByStore.has(branch.id)
         ? additionsParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
-    ])));
-    setBranchOrderModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, AdditionsMode>;
+    const nextBranchOrderModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       orderModeParameterByStore.get(branch.id) ?? "inherit",
-    ])));
-    setBranchCompactInternalCatalogModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, BranchOrderMode>;
+    const nextBranchCompactInternalCatalogModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       compactInternalCatalogParameterByStore.has(branch.id)
         ? compactInternalCatalogParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
-    ])));
-    setBranchPrintModes(Object.fromEntries(selectedBranches.map((branch) => [
+    ])) as Record<string, CompactInternalCatalogMode>;
+    const nextBranchPrintModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       printModeParameterByStore.get(branch.id) ?? "inherit",
-    ])));
+    ])) as Record<string, BranchPrintMode>;
+    setBranchFreightModes(nextBranchFreightModes);
+    setBranchDeliveryFeeTypeModes(nextBranchDeliveryFeeTypeModes);
+    setBranchCatalogLayouts(nextBranchCatalogLayouts);
+    setBranchProductImageLimits(nextBranchProductImageLimits);
+    setBranchStockControlModes(nextBranchStockControlModes);
+    setBranchAdditionsModes(nextBranchAdditionsModes);
+    setBranchOrderModes(nextBranchOrderModes);
+    setBranchCompactInternalCatalogModes(nextBranchCompactInternalCatalogModes);
+    setBranchPrintModes(nextBranchPrintModes);
+    if (nextActiveBranchId) {
+      const nextStockMode = nextBranchStockControlModes[nextActiveBranchId] ?? "inherit";
+      const nextAdditionsMode = nextBranchAdditionsModes[nextActiveBranchId] ?? "inherit";
+      const nextImageLimitMode = nextBranchProductImageLimits[nextActiveBranchId] ?? "inherit";
+      setActiveControlsStock(nextStockMode === "inherit" ? nextCompanyControlsStock : nextStockMode === "enabled");
+      setActiveEnablesAdditions(nextAdditionsMode === "inherit" ? nextCompanyEnablesAdditions : nextAdditionsMode === "enabled");
+      setActiveProductImageLimit(nextImageLimitMode === "inherit" ? nextCompanyProductImageLimit : nextImageLimitMode);
+    }
+    setSettingsLoadedTenantId(tenantId);
   }
 
   async function saveCompanyParameters(event: FormEvent<HTMLFormElement>) {
@@ -3615,11 +3648,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => {
           setCompanyPortalSection(section);
           setMessage("");
-          if (section === "settings") void openCompanySettings(tenant.id, "identity");
-          if (section === "catalog" && activeBranchId) {
-            void refreshBranchCatalog(activeBranchId);
-            void refreshActiveBranchParameters(activeBranchId);
-          }
+          if (section === "settings" && settingsLoadedTenantId !== tenant.id) void openCompanySettings(tenant.id, companySettingsSection === "overview" ? "identity" : companySettingsSection);
         }} /> : null}
 
         {isCompanyPortal && tenant && (companyPortalSection === "team" || companyPortalSection === "tables") ? (
@@ -3668,7 +3697,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
               {portalMode === "admin" ? <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div> : null}
             </header>
             <div className="company-settings-layout">
-              <CompanySettingsNav isCompanyPortal={isCompanyPortal} section={companySettingsSection} onChange={(section) => { setCompanySettingsSection(section); if (section === "parameters") setParameterScope("company"); }} />
+              <CompanySettingsNav isCompanyPortal={isCompanyPortal} section={companySettingsSection} onChange={setCompanySettingsSection} />
               <div className="company-settings-content">
                 {companySettingsSection === "overview" ? (
                   <div className="settings-overview">

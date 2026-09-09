@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, printAgentMain, windowsPrintAgent, windowsPrinterList, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
+  const [page, pageStyles, adminPage, companyPortalSource, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, companyOwnerIdentitySql, companyOwnerTenantReadSql, internalPrintSql, printTokenSqlEditorSql, companyOwnerTenantParametersSql, printAgentMain, windowsPrintAgent, windowsPrinterList, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -67,6 +67,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/025_company_owner_tenant_read_policy.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/026_internal_order_printing.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/027_print_agent_token_sql_editor_access.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/028_company_owner_tenant_parameters.sql", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/main.go", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/windows-agent.ps1", projectRoot), "utf8"),
     readFile(new URL("agents/liist-print-agent/windows-list-printers.ps1", projectRoot), "utf8"),
@@ -261,6 +262,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /printModeLabel/);
   assert.match(adminPage, /onCompanyPrintModeChange/);
   assert.match(adminPage, /onBranchPrintModeChange/);
+  assert.match(adminPage, /settingsLoadedTenantId !== tenant\.id/);
+  assert.doesNotMatch(adminPage, /section === "catalog" && activeBranchId/);
+  assert.match(adminPage, /setParameterScope\(\(current\) => isSameTenant \? current : "company"\)/);
   assert.match(adminPage, /printAgentInstallerScript/);
   assert.match(adminPage, /Baixar instalador/);
   assert.match(adminPage, /create_print_agent_token/);
@@ -286,6 +290,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(internalPrintSql, /create trigger enqueue_automatic_internal_order_print/);
   assert.match(printTokenSqlEditorSql, /auth\.uid\(\) is not null and not public\.can_manage_store/);
   assert.match(printTokenSqlEditorSql, /grant execute on function public\.create_print_agent_token\(uuid, text\) to authenticated/);
+  assert.match(companyOwnerTenantParametersSql, /company owners manage tenant parameters/);
+  assert.match(companyOwnerTenantParametersSql, /using \(public\.is_company_owner\(tenant_id\)\)/);
+  assert.match(companyOwnerTenantParametersSql, /with check \(public\.is_company_owner\(tenant_id\)\)/);
   assert.match(printAgentMain, /LIIST_PRINT_AGENT_TOKEN/);
   assert.match(printAgentMain, /claim_next_print_job/);
   assert.match(printAgentMain, /complete_print_job/);
@@ -494,7 +501,6 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Novo grupo de adicionais/);
   assert.match(adminPage, /Grupos de adicionais/);
   assert.match(adminPage, /const showAdditionGroupsCatalog = activeEnablesAdditions \|\| optionGroups\.length > 0/);
-  assert.match(adminPage, /section === "catalog" && activeBranchId/);
   assert.match(adminPage, /ADDITION_GROUP_HEADERS/);
   assert.match(adminPage, /ADDITION_GROUP_HEADERS = \["Grupo", "Obrigat\\u00f3rio", "M\\u00e1ximo", "Status", "Ordem"\]/);
   assert.match(adminPage, /ADDITION_IMPORT_HEADERS = \["Grupo", "Produto", "Adicional", "Acr\\u00e9scimo", "Status", "Ordem"\]/);
@@ -561,7 +567,8 @@ test("keeps the growth surfaces present", async () => {
   );
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
-  assert.match(adminPage, /section === "settings"\) void openCompanySettings\(tenant\.id, "identity"\)/);
+  assert.match(adminPage, /settingsLoadedTenantId !== tenant\.id/);
+  assert.match(adminPage, /companySettingsSection === "overview" \? "identity" : companySettingsSection/);
   assert.match(adminPage, /isCompanyPortal\s*\?\s*Promise\.resolve\(\{ data: \{ account: null \}, error: null \}\)/);
   assert.match(companyPortalSource, /CompanyPortalSection = "catalog" \| "team" \| "tables" \| "settings"/);
   assert.match(companyPortalSource, />Configurações</);
