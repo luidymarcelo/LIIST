@@ -47,6 +47,10 @@ import {
   type CompanyPortalSection,
 } from "./company-operations";
 
+const publicEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
+const publicSupabaseUrl = publicEnv.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const publicSupabaseAnonKey = publicEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
 type Tenant = { id: string; name: string; slug: string; is_active?: boolean; theme_color?: string; profile_image_url?: string | null };
 type Branch = {
   id: string;
@@ -394,6 +398,118 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+function powershellSingleQuote(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function printAgentInstallerScript({
+  supabaseUrl,
+  anonKey,
+  token,
+  companyName,
+  branchName,
+}: {
+  supabaseUrl: string;
+  anonKey: string;
+  token: string;
+  companyName: string;
+  branchName: string;
+}) {
+  const taskSuffix = slugify(`${companyName}-${branchName}`) || "filial";
+  const safeCompany = powershellSingleQuote(companyName);
+  const safeBranch = powershellSingleQuote(branchName);
+  const safeSupabaseUrl = powershellSingleQuote(supabaseUrl);
+  const safeAnonKey = powershellSingleQuote(anonKey);
+  const safeToken = powershellSingleQuote(token);
+  return `# Instalador do LIIST Print Agent
+# Gerado pelo painel LIIST para ${companyName} / ${branchName}
+
+$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+$CompanyName = ${safeCompany}
+$BranchName = ${safeBranch}
+$SupabaseUrl = ${safeSupabaseUrl}
+$SupabaseAnonKey = ${safeAnonKey}
+$AgentToken = ${safeToken}
+$AgentUrl = "https://raw.githubusercontent.com/luidymarcelo/LIIST/main/agents/liist-print-agent/windows-agent.ps1"
+$InstallDir = Join-Path $env:ProgramData "LIIST\\PrintAgent\\${taskSuffix}"
+$AgentPath = Join-Path $InstallDir "windows-agent.ps1"
+$StartPath = Join-Path $InstallDir "start-liist-print-agent.ps1"
+$OutboxDir = Join-Path $InstallDir "print-outbox"
+$TaskName = "LIIST Print Agent - ${taskSuffix}"
+
+function Write-Step([string]$Message) {
+  Write-Host ""
+  Write-Host "== $Message ==" -ForegroundColor Cyan
+}
+
+function Read-PrinterName {
+  Write-Step "Impressoras encontradas"
+  if (-not (Get-Command Get-Printer -ErrorAction SilentlyContinue)) {
+    Write-Host "Este Windows nao possui o comando Get-Printer disponivel."
+    return Read-Host "Digite o nome exato da impressora ou deixe vazio para usar a padrao"
+  }
+
+  $printers = @(Get-Printer | Sort-Object Name)
+  if (-not $printers.Length) {
+    Write-Host "Nenhuma impressora instalada foi encontrada."
+    return ""
+  }
+
+  for ($index = 0; $index -lt $printers.Length; $index++) {
+    $printer = $printers[$index]
+    Write-Host ("[{0}] {1}  ({2})" -f ($index + 1), $printer.Name, $printer.DriverName)
+  }
+
+  $choice = Read-Host "Digite o numero da impressora ou pressione Enter para usar a impressora padrao"
+  if ([string]::IsNullOrWhiteSpace($choice)) { return "" }
+
+  $selectedIndex = 0
+  if (-not [int]::TryParse($choice, [ref]$selectedIndex) -or $selectedIndex -lt 1 -or $selectedIndex -gt $printers.Length) {
+    throw "Opcao de impressora invalida."
+  }
+  return $printers[$selectedIndex - 1].Name
+}
+
+Write-Step "Instalando LIIST Print Agent"
+Write-Host "Empresa: $CompanyName"
+Write-Host "Filial: $BranchName"
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+New-Item -ItemType Directory -Path $OutboxDir -Force | Out-Null
+
+Write-Step "Baixando agente oficial"
+Invoke-WebRequest -Uri $AgentUrl -OutFile $AgentPath -UseBasicParsing
+
+$PrinterName = Read-PrinterName
+$PrinterArgument = if ([string]::IsNullOrWhiteSpace($PrinterName)) { "" } else { " -PrinterName '$($PrinterName.Replace("'", "''"))'" }
+
+$StartContent = @"
+\`$ErrorActionPreference = "Stop"
+& '$($AgentPath.Replace("'", "''"))' -SupabaseUrl '$($SupabaseUrl.Replace("'", "''"))' -SupabaseAnonKey '$($SupabaseAnonKey.Replace("'", "''"))' -AgentToken '$($AgentToken.Replace("'", "''"))'$PrinterArgument -OutputDir '$($OutboxDir.Replace("'", "''"))' -IntervalSeconds 4
+"@
+Set-Content -Path $StartPath -Value $StartContent -Encoding UTF8
+
+Write-Step "Configurando inicializacao automatica"
+$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File \`"$StartPath\`""
+$Trigger = New-ScheduledTaskTrigger -AtLogOn
+$Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel LeastPrivilege
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+
+Write-Step "Iniciando agente"
+Start-ScheduledTask -TaskName $TaskName
+Write-Host "Instalacao concluida." -ForegroundColor Green
+Write-Host "Tarefa do Windows: $TaskName"
+Write-Host "Pasta: $InstallDir"
+Write-Host "Comandas salvas em: $OutboxDir"
+Write-Host ""
+Write-Host "Para parar manualmente: Stop-ScheduledTask -TaskName '$TaskName'"
+Write-Host "Para remover: Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:\`$false"
+Read-Host "Pressione Enter para fechar"
+`;
+}
+
 function validCoordinate(value: string, min: number, max: number) {
   const normalized = value.trim().replace(",", ".");
   if (!normalized) return null;
@@ -588,6 +704,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [branchCompactInternalCatalogModes, setBranchCompactInternalCatalogModes] = useState<Record<string, CompactInternalCatalogMode>>({});
   const [companyPrintMode, setCompanyPrintMode] = useState<PrintMode>("disabled");
   const [branchPrintModes, setBranchPrintModes] = useState<Record<string, BranchPrintMode>>({});
+  const [generatingPrintInstallerId, setGeneratingPrintInstallerId] = useState("");
   const [activeControlsStock, setActiveControlsStock] = useState(true);
   const [activeEnablesAdditions, setActiveEnablesAdditions] = useState(false);
   const [savingParameters, setSavingParameters] = useState(false);
@@ -2002,6 +2119,47 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setSavingParameters(false);
     void refreshActiveBranchParameters(branch.id);
     setMessage(`Parâmetros da filial ${branch.name} atualizados.`);
+  }
+
+  async function downloadPrintAgentInstaller(branch: Branch) {
+    if (!supabase || generatingPrintInstallerId) return;
+    if (!publicSupabaseUrl || !publicSupabaseAnonKey) {
+      setMessage("As variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY não estão configuradas nesta publicação.");
+      return;
+    }
+    setGeneratingPrintInstallerId(branch.id);
+    setMessage(`Gerando instalador de impressão para ${branch.name}...`);
+    try {
+      const { data, error } = await supabase.rpc("create_print_agent_token", {
+        p_store_id: branch.id,
+        p_name: `Agente de impressão - ${branch.name}`,
+      });
+      if (error) throw error;
+      const token = typeof data === "object" && data && "token" in data ? String((data as { token?: unknown }).token ?? "") : "";
+      if (!token) throw new Error("O Supabase não retornou o token do agente.");
+
+      const script = printAgentInstallerScript({
+        supabaseUrl: publicSupabaseUrl,
+        anonKey: publicSupabaseAnonKey,
+        token,
+        companyName: tenant?.name ?? "LIIST",
+        branchName: branch.name,
+      });
+      const blob = new Blob([script], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `liist-instalador-impressao-${slugify(branch.name) || "filial"}.ps1`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(`Instalador de impressão de ${branch.name} baixado. Execute o arquivo no computador da loja.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? `Não foi possível gerar o instalador: ${error.message}` : "Não foi possível gerar o instalador de impressão.");
+    } finally {
+      setGeneratingPrintInstallerId("");
+    }
   }
 
   async function saveCompanyIdentity(event: FormEvent<HTMLFormElement>) {
@@ -3573,6 +3731,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     branchCompactInternalCatalogModes={branchCompactInternalCatalogModes}
                     companyPrintMode={companyPrintMode}
                     branchPrintModes={branchPrintModes}
+                    generatingPrintInstallerId={generatingPrintInstallerId}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -3596,6 +3755,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     onBranchCompactInternalCatalogModeChange={(branchId, mode) => setBranchCompactInternalCatalogModes((current) => ({ ...current, [branchId]: mode }))}
                     onCompanyPrintModeChange={setCompanyPrintMode}
                     onBranchPrintModeChange={(branchId, mode) => setBranchPrintModes((current) => ({ ...current, [branchId]: mode }))}
+                    onDownloadPrintAgentInstaller={(branch) => void downloadPrintAgentInstaller(branch)}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -4106,6 +4266,7 @@ function ParameterWorkspace({
   branchCompactInternalCatalogModes,
   companyPrintMode,
   branchPrintModes,
+  generatingPrintInstallerId,
   loading,
   saving,
   onScopeChange,
@@ -4129,6 +4290,7 @@ function ParameterWorkspace({
   onBranchCompactInternalCatalogModeChange,
   onCompanyPrintModeChange,
   onBranchPrintModeChange,
+  onDownloadPrintAgentInstaller,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -4155,6 +4317,7 @@ function ParameterWorkspace({
   branchCompactInternalCatalogModes: Record<string, CompactInternalCatalogMode>;
   companyPrintMode: PrintMode;
   branchPrintModes: Record<string, BranchPrintMode>;
+  generatingPrintInstallerId: string;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -4178,6 +4341,7 @@ function ParameterWorkspace({
   onBranchCompactInternalCatalogModeChange: (branchId: string, mode: CompactInternalCatalogMode) => void;
   onCompanyPrintModeChange: (mode: PrintMode) => void;
   onBranchPrintModeChange: (branchId: string, mode: BranchPrintMode) => void;
+  onDownloadPrintAgentInstaller: (branch: Branch) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -4441,6 +4605,14 @@ function ParameterWorkspace({
                         <label className={activePrintMode === "manual_and_automatic" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="manual_and_automatic" checked={activePrintMode === "manual_and_automatic"} onChange={() => onBranchPrintModeChange(activeBranch.id, "manual_and_automatic")} /><SlidersHorizontal size={17} /><span><strong>Ambas</strong><small>Automática + reimpressão</small></span></label>
                       </div>
                     </fieldset>
+                    <section className="print-agent-download-panel">
+                      <span><Printer size={18} /></span>
+                      <div><strong>Agente local desta filial</strong><small>Baixe no computador da loja. O instalador lista as impressoras, salva a configuração e inicia com o Windows.</small></div>
+                      <button className="admin-secondary" type="button" onClick={() => onDownloadPrintAgentInstaller(activeBranch)} disabled={Boolean(generatingPrintInstallerId)}>
+                        <Download size={16} />
+                        {generatingPrintInstallerId === activeBranch.id ? "Gerando..." : "Baixar instalador"}
+                      </button>
+                    </section>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>

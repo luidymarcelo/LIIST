@@ -261,6 +261,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /printModeLabel/);
   assert.match(adminPage, /onCompanyPrintModeChange/);
   assert.match(adminPage, /onBranchPrintModeChange/);
+  assert.match(adminPage, /printAgentInstallerScript/);
+  assert.match(adminPage, /Baixar instalador/);
+  assert.match(adminPage, /create_print_agent_token/);
+  assert.match(adminPage, /raw\.githubusercontent\.com\/luidymarcelo\/LIIST\/main\/agents\/liist-print-agent\/windows-agent\.ps1/);
+  assert.match(adminPage, /Get-Printer/);
+  assert.match(adminPage, /New-ScheduledTaskAction/);
+  assert.match(adminPage, /Register-ScheduledTask/);
   assert.match(ordersPage, /type PrintMode = "disabled" \| "manual" \| "automatic" \| "manual_and_automatic"/);
   assert.match(ordersPage, /enqueue_internal_order_print/);
   assert.match(ordersPage, /workflow-print-action/);
