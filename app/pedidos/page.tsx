@@ -16,7 +16,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Branch = { id: string; name: string; slug: string; tenant_id: string };
@@ -172,6 +172,15 @@ export default function InternalOrdersPage() {
   const [savingKey, setSavingKey] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const activeSessionKeyRef = useRef("");
+
+  function ordersSessionKey(nextSession: Session | null) {
+    if (!nextSession) return "";
+    const cnpj = window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
+      ?? window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
+      ?? "";
+    return `${nextSession.user.id}:${cnpj.replace(/\D/g, "")}`;
+  }
 
   async function loadWorkspace() {
     if (!supabase || !session) return;
@@ -265,8 +274,20 @@ export default function InternalOrdersPage() {
   useEffect(() => {
     if (!supabase) { setLoading(false); setError("Supabase não está configurado neste ambiente."); return; }
     let mounted = true;
-    void supabase.auth.getSession().then(({ data }) => { if (mounted) { setSession(data.session); if (!data.session) setLoading(false); } });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => { if (mounted) { setSession(nextSession); if (!nextSession) setLoading(false); } });
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      activeSessionKeyRef.current = ordersSessionKey(data.session);
+      setSession(data.session);
+      if (!data.session) setLoading(false);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      const nextKey = ordersSessionKey(nextSession);
+      if (nextSession && activeSessionKeyRef.current === nextKey) return;
+      activeSessionKeyRef.current = nextKey;
+      setSession(nextSession);
+      if (!nextSession) setLoading(false);
+    });
     return () => { mounted = false; data.subscription.unsubscribe(); };
   }, []);
 

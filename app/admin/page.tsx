@@ -609,6 +609,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const isBranchPortal = portalMode === "branch";
   const isBusinessPortal = isCompanyPortal || isBranchPortal;
   const [session, setSession] = useState<Session | null>(null);
+  const authorizedWorkspaceKeyRef = useRef("");
+  const authorizingWorkspaceKeyRef = useRef("");
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -887,30 +889,62 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setLoading(false);
   }
 
+  function workspaceSessionKey(nextSession: Session | null) {
+    if (!nextSession) return "";
+    const branchCnpj = isBranchPortal
+      ? window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY) ?? ""
+      : "";
+    return `${portalMode}:${nextSession.user.id}:${branchCnpj}`;
+  }
+
   async function authorizeSession(nextSession: Session | null) {
     if (!supabase) return;
     if (!nextSession) {
+      authorizedWorkspaceKeyRef.current = "";
+      authorizingWorkspaceKeyRef.current = "";
       setSession(null);
       setSettingsLoadedTenantId("");
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-    if (portalMode === "admin") {
-      const { data: isAdmin, error } = await supabase.rpc("is_platform_admin");
-      if (error || !isAdmin) {
-        setSession(null);
-        setAccessDenied(true);
-        setLoading(false);
-        await supabase.auth.signOut();
-        return;
-      }
+    const nextWorkspaceKey = workspaceSessionKey(nextSession);
+    if (authorizedWorkspaceKeyRef.current === nextWorkspaceKey) {
+      setAccessDenied(false);
+      setSession(nextSession);
+      setLoading(false);
+      return;
+    }
+    if (authorizingWorkspaceKeyRef.current === nextWorkspaceKey) {
+      setSession(nextSession);
+      return;
     }
 
-    setAccessDenied(false);
-    setSession(nextSession);
-    await loadWorkspace(nextSession.user.id);
+    authorizingWorkspaceKeyRef.current = nextWorkspaceKey;
+    try {
+      if (!authorizedWorkspaceKeyRef.current) setLoading(true);
+      if (portalMode === "admin") {
+        const { data: isAdmin, error } = await supabase.rpc("is_platform_admin");
+        if (error || !isAdmin) {
+          authorizedWorkspaceKeyRef.current = "";
+          authorizingWorkspaceKeyRef.current = "";
+          setSession(null);
+          setAccessDenied(true);
+          setLoading(false);
+          await supabase.auth.signOut();
+          return;
+        }
+      }
+
+      setAccessDenied(false);
+      setSession(nextSession);
+      await loadWorkspace(nextSession.user.id);
+      authorizedWorkspaceKeyRef.current = nextWorkspaceKey;
+    } finally {
+      if (authorizingWorkspaceKeyRef.current === nextWorkspaceKey) {
+        authorizingWorkspaceKeyRef.current = "";
+      }
+    }
   }
 
   useEffect(() => {
@@ -921,7 +955,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
 
     void supabase.auth.getSession().then(({ data }) => authorizeSession(data.session));
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "TOKEN_REFRESHED" && nextSession && authorizedWorkspaceKeyRef.current === workspaceSessionKey(nextSession)) {
+        setSession(nextSession);
+        return;
+      }
       window.setTimeout(() => void authorizeSession(nextSession), 0);
     });
 

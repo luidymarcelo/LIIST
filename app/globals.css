@@ -14,7 +14,10 @@
   --primary-contrast: #ffffff;
   --accent: #111513;
   --warning: #8a621d;
-  --success: #176b52;
+  --success: #181a19;
+  --positive-bg: rgba(17, 21, 19, 0.06);
+  --positive-border: rgba(17, 21, 19, 0.18);
+  --positive-strong-bg: rgba(17, 21, 19, 0.1);
   --shadow: 0 10px 28px rgba(24, 26, 25, 0.07);
   --liist-ink: #111513;
   --liist-accent: #e84f8a;
@@ -121,13 +124,13 @@
 }
 
 .operation-table-card.ready {
-  border-color: #9cc8af;
-  background: #f8fcf9;
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
 }
 
 .operation-table-card.ready .operation-table-card-heading > span {
-  background: #dcefe3;
-  color: #225d3d;
+  background: var(--positive-strong-bg);
+  color: var(--foreground);
 }
 
 .operation-table-card.closing {
@@ -355,7 +358,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #347052;
+  color: var(--foreground);
   font-size: 0.71rem;
 }
 
@@ -363,8 +366,8 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #3e9a6a;
-  box-shadow: 0 0 0 3px #e1f2e8;
+  background: var(--foreground);
+  box-shadow: 0 0 0 3px var(--positive-strong-bg);
 }
 
 .workflow-notice,
@@ -375,10 +378,10 @@
   gap: 9px;
   margin-top: 12px;
   padding: 10px 12px;
-  border: 1px solid #bddbc8;
+  border: 1px solid var(--positive-border);
   border-radius: 6px;
-  background: #f6fcf8;
-  color: #275f40;
+  background: var(--positive-bg);
+  color: var(--foreground);
   font-size: 0.77rem;
 }
 
@@ -462,7 +465,7 @@
 }
 
 .waiter-session-card.has-ready {
-  border-color: #9cc8af;
+  border-color: var(--positive-border);
 }
 
 .waiter-session-card.closing,
@@ -534,8 +537,8 @@
 }
 
 .waiter-session-card.has-ready > header > em {
-  background: #e1f2e8;
-  color: #286143;
+  background: var(--positive-strong-bg);
+  color: var(--foreground);
 }
 
 .waiter-session-card.closing > header > em,
@@ -635,7 +638,7 @@
 
 .waiter-order-list li.ready > em,
 .kitchen-ticket li.ready > em {
-  color: #2d6b4b;
+  color: var(--foreground);
 }
 
 .waiter-order-list li.delivered {
@@ -649,10 +652,10 @@
 .workflow-print-action {
   min-height: 30px;
   padding: 0 9px;
-  border: 1px solid #b9d6c4;
+  border: 1px solid var(--positive-border);
   border-radius: 5px;
-  background: #f7fcf9;
-  color: #2d6849;
+  background: var(--positive-bg);
+  color: var(--foreground);
   font-size: 0.69rem;
 }
 
@@ -687,8 +690,8 @@
 }
 
 .workflow-print-action:hover:not(:disabled) {
-  border-color: #8fbfa2;
-  background: #f7fcf9;
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
 }
 
 .waiter-order-list article > p {
@@ -791,7 +794,7 @@
 }
 
 .kitchen-ticket.status-ready {
-  border-color: #9cc8af;
+  border-color: var(--positive-border);
 }
 
 .kitchen-ticket ol {
@@ -1292,8 +1295,8 @@ img {
 }
 
 .nav-action.active {
-  border-color: rgba(15, 167, 111, 0.35);
-  background: rgba(15, 167, 111, 0.1);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -1926,7 +1929,7 @@ img {
 }
 
 .category-strip button.active {
-  border-color: rgba(15, 167, 111, 0.4);
+  border-color: var(--foreground);
   background: var(--primary);
   color: #fff;
   transform: translateY(-1px);
@@ -4097,7 +4100,7 @@ img {
 }
 
 .parameter-toggle-row input:focus-visible + i {
-  outline: 3px solid rgba(19, 115, 90, 0.22);
+  outline: 3px solid var(--positive-strong-bg);
   outline-offset: 2px;
 }
 
@@ -4384,7 +4387,7 @@ img {
 }
 
 .primary-outline {
-  background: rgba(15, 167, 111, 0.09);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -4475,7 +4478,7 @@ img {
 
 .status-pronto,
 .status-conectado {
-  background: rgba(15, 167, 111, 0.12);
+  background: var(--positive-bg);
   color: var(--success);
 }
 
@@ -4533,8 +4536,8 @@ img {
 }
 
 .integration-card footer button:first-child {
-  border-color: rgba(15, 167, 111, 0.34);
-  background: rgba(15, 167, 111, 0.09);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -5085,8 +5088,8 @@ img {
 }
 
 .identity-save-feedback.success {
-  border-color: rgba(17, 124, 84, 0.28);
-  background: rgba(17, 124, 84, 0.08);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
   color: var(--success);
 }
 
@@ -5477,14 +5480,14 @@ img {
 
 .admin-sidebar-nav button.active,
 .company-settings-nav button.active {
-  border-color: rgba(15, 167, 111, 0.28);
-  background: rgba(15, 167, 111, 0.09);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
 .admin-sidebar-nav button.active small,
 .company-settings-nav button.active small {
-  color: #39715e;
+  color: var(--muted);
 }
 
 .company-settings-header span,
@@ -5583,7 +5586,7 @@ img {
 
 .catalog-panel-search:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(15, 167, 111, 0.1);
+  box-shadow: 0 0 0 3px var(--positive-strong-bg);
 }
 
 .catalog-panel-search input {
@@ -5861,9 +5864,9 @@ img {
   font-weight: 650;
 }
 
-.status-accepted { color: #155e75; background: #e0f2fe; }
+.status-accepted { color: var(--foreground); background: var(--surface-strong); }
 .status-preparing { color: #92400e; background: #fef3c7; }
-.status-ready { color: #166534; background: #dcfce7; }
+.status-ready { color: var(--foreground); background: var(--positive-bg); }
 .status-completed { color: #475569; background: #f1f5f9; }
 .status-cancelled { color: #991b1b; background: #fee2e2; }
 
@@ -6099,9 +6102,9 @@ img {
 .admin-console-message {
   margin-top: 16px;
   padding: 12px 14px;
-  border: 1px solid rgba(15, 167, 111, 0.24);
+  border: 1px solid var(--positive-border);
   border-radius: 8px;
-  background: rgba(15, 167, 111, 0.07);
+  background: var(--positive-bg);
 }
 
 .new-company-form {
@@ -6283,7 +6286,7 @@ img {
 }
 
 .company-status-badge.active {
-  background: rgba(17, 124, 84, 0.1);
+  background: var(--positive-bg);
   color: var(--success);
 }
 
@@ -6379,7 +6382,7 @@ img {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: rgba(15, 167, 111, 0.1);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -6447,7 +6450,7 @@ img {
   height: 42px;
   place-items: center;
   border-radius: 8px;
-  background: rgba(15, 167, 111, 0.1);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -6551,8 +6554,8 @@ img {
 }
 
 .availability-switch.active {
-  border-color: rgba(15, 167, 111, 0.3);
-  background: rgba(15, 167, 111, 0.07);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -6801,7 +6804,7 @@ img {
 }
 
 .settings-branch-row:hover {
-  background: rgba(15, 167, 111, 0.04);
+  background: rgba(17, 21, 19, 0.04);
 }
 
 .settings-branch-row > span {
@@ -6852,8 +6855,8 @@ img {
 }
 
 .parameter-status.active {
-  border-color: rgba(15, 167, 111, 0.28);
-  background: rgba(15, 167, 111, 0.07);
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
 }
 
 .parameter-status.inactive {
@@ -7025,7 +7028,7 @@ img {
   height: 38px;
   place-items: center;
   border-radius: 8px;
-  background: rgba(15, 167, 111, 0.09);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -7153,7 +7156,7 @@ img {
   height: 34px;
   place-items: center;
   border-radius: 7px;
-  background: rgba(15, 167, 111, 0.09);
+  background: var(--positive-bg);
   color: var(--primary-dark);
 }
 
@@ -7426,7 +7429,7 @@ img {
 }
 
 .parameter-mode-options label:has(input:focus-visible) {
-  outline: 3px solid rgba(15, 167, 111, 0.2);
+  outline: 3px solid var(--positive-strong-bg);
   outline-offset: 1px;
 }
 
@@ -7467,7 +7470,7 @@ img {
 
 .parameter-money-field > div:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(15, 167, 111, 0.12);
+  box-shadow: 0 0 0 3px var(--positive-strong-bg);
 }
 
 .parameter-money-field b {
@@ -8982,9 +8985,9 @@ img {
   font-weight: 500;
 }
 
-.status-accepted { color: #176078; }
+.status-accepted { color: var(--foreground); }
 .status-preparing { color: #8a621d; }
-.status-ready { color: #176b52; }
+.status-ready { color: var(--foreground); }
 .status-completed { color: #626864; }
 .status-cancelled { color: #9a3b3b; }
 
@@ -10486,8 +10489,8 @@ img {
 }
 
 .operation-table-card.active {
-  border-color: #b7c9c0;
-  background: #fbfdfc;
+  border-color: var(--positive-border);
+  background: var(--positive-bg);
 }
 
 .operation-table-card > footer {
@@ -10511,7 +10514,7 @@ img {
 }
 
 .operation-table-ready {
-  color: #2f6d52;
+  color: var(--foreground);
   font-size: 0.72rem;
   font-weight: 600;
 }

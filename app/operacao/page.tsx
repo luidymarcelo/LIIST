@@ -11,7 +11,7 @@ import {
   Store,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { LiistCartMark } from "../../components/liist-brand";
 import { supabase } from "../../lib/supabase";
 
@@ -98,6 +98,12 @@ export default function OperationPage() {
   const [openingTableId, setOpeningTableId] = useState("");
   const [message, setMessage] = useState("");
   const [notification, setNotification] = useState("");
+  const activeSessionKeyRef = useRef("");
+
+  function operationSessionKey(nextSession: Session | null, selectedCnpj = cnpj || storedOperationCnpj()) {
+    if (!nextSession) return "";
+    return `${nextSession.user.id}:${selectedCnpj.replace(/\D/g, "")}`;
+  }
 
   function notifyReadyOrder() {
     const text = "A cozinha liberou um pedido para entrega.";
@@ -207,12 +213,16 @@ export default function OperationPage() {
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
+      activeSessionKeyRef.current = operationSessionKey(data.session);
       setSession(data.session);
       if (data.session) void loadWorkspace(data.session);
       else setLoading(false);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!mounted) return;
+      const nextKey = operationSessionKey(nextSession);
+      if (nextSession && activeSessionKeyRef.current === nextKey) return;
+      activeSessionKeyRef.current = nextKey;
       setSession(nextSession);
       if (!nextSession) {
         setWorkspace(null);
@@ -268,6 +278,7 @@ export default function OperationPage() {
     }
     setSession(data.session);
     await loadWorkspace(data.session, normalizedCnpj);
+    activeSessionKeyRef.current = operationSessionKey(data.session, normalizedCnpj);
     setSubmitting(false);
   }
 
@@ -279,6 +290,7 @@ export default function OperationPage() {
 
   async function signOut() {
     await supabase?.auth.signOut();
+    activeSessionKeyRef.current = "";
     setWorkspace(null);
   }
 

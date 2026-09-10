@@ -257,7 +257,7 @@ function mixHexColor(color: string, target: "#000000" | "#ffffff", amount: numbe
 function themeContrast(color: string) {
   const hex = normalizeThemeColor(color).slice(1);
   const [red, green, blue] = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
-  return (red * 299 + green * 587 + blue * 114) / 1000 > 160 ? "#17211c" : "#ffffff";
+  return (red * 299 + green * 587 + blue * 114) / 1000 > 160 ? "#111513" : "#ffffff";
 }
 
 function catalogThemeStyle(color: string): CSSProperties {
