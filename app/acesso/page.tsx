@@ -2,12 +2,13 @@
 
 import { Building2, ClipboardList, ShieldCheck, Store } from "lucide-react";
 import Link from "next/link";
+import { LiistBrand } from "../../components/liist-brand";
 
 export default function AccessPage() {
   return (
     <main className="access-page">
       <section className="access-shell">
-        <span className="access-kicker">LIIST</span>
+        <LiistBrand className="access-brand" context="Portais de acesso" />
         <h1>Como você deseja entrar?</h1>
         <p>Escolha o acesso correspondente ao seu perfil.</p>
         <div className="access-options">

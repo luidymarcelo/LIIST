@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { LiistCartMark } from "../../components/liist-brand";
 import { supabase } from "../../lib/supabase";
 
 type OperationalRole = "owner" | "branch_manager" | "waiter" | "cashier" | "kitchen" | "supervisor";
@@ -331,8 +332,8 @@ export default function OperationPage() {
     return (
       <main className="operation-page operation-login-page">
         <section className="operation-login-card">
-          <span className="operation-login-mark"><ClipboardList size={25} /></span>
-          <div><span>Portal operacional</span><h1>Entrar na filial</h1></div>
+          <LiistCartMark className="operation-login-mark" />
+          <div><span>LIIST Commerce</span><h1>Entrar na filial</h1></div>
           <form onSubmit={session ? changeBranchContext : signIn}>
             <label>CNPJ da filial<input value={cnpj} onChange={(event) => setCnpj(formatCnpj(event.target.value))} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
             {!session ? <><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label><label>Senha<input type="password" minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label></> : null}

@@ -3,19 +3,19 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://liist.com.br"),
-  title: "LIIST",
-  description: "Catálogos, pedidos por WhatsApp e comandas internas em um só lugar.",
+  title: "LIIST Commerce",
+  description: "Catálogos, pedidos por WhatsApp e comandas internas para comércio local.",
   openGraph: {
-    title: "LIIST",
-    description: "Catálogos, pedidos por WhatsApp e comandas internas em um só lugar.",
-    images: [{ url: "/og.png", width: 1728, height: 907, alt: "LIIST" }],
+    title: "LIIST Commerce",
+    description: "Catálogos, pedidos por WhatsApp e comandas internas para comércio local.",
+    images: [{ url: "/og.png", width: 1728, height: 907, alt: "LIIST Commerce" }],
     locale: "pt_BR",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "LIIST",
-    description: "Catálogos, pedidos por WhatsApp e comandas internas em um só lugar.",
+    title: "LIIST Commerce",
+    description: "Catálogos, pedidos por WhatsApp e comandas internas para comércio local.",
     images: ["/og.png"],
   },
   icons: {

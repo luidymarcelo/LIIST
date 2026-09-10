@@ -32,7 +32,7 @@ test("server-renders the store discovery homepage", async () => {
   assert.equal(response.headers.get("permissions-policy"), "geolocation=(self)");
 
   const html = await response.text();
-  assert.match(html, /<title>LIIST<\/title>/i);
+  assert.match(html, /<title>LIIST Commerce<\/title>/i);
   assert.match(html, /<meta name="viewport" content="[^"]*width=device-width[^"]*initial-scale=1/);
   assert.match(html, /LIIST/);
   assert.match(html, /Lojas e catálogos|Nenhum catalogo configurado/);

@@ -34,6 +34,7 @@ import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LiistBrand } from "../components/liist-brand";
 import { supabase } from "../lib/supabase";
 
 type StoreId = string;
@@ -1737,11 +1738,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
           onClick={() => setView("catalog")}
           aria-label="Abrir catalogo"
         >
-          <span className="brand-mark"><Store size={20} /></span>
-          <span>
-            <strong>LIIST</strong>
-            <small>{orderChannel === "internal" ? "Comandas internas" : "Catálogos e pedidos"}</small>
-          </span>
+          <LiistBrand context={orderChannel === "internal" ? "Comandas internas" : "Catálogos e pedidos"} />
         </button>
 
         <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
@@ -2094,7 +2091,7 @@ function StoreDiscovery({
   return (
     <section className="store-discovery">
       <header className="discovery-heading">
-        <div><span>LIIST</span><h1>{orderChannel === "internal" ? "Catálogos para comanda" : "Lojas e catálogos"}</h1><p>{orderChannel === "internal" ? "Selecione a filial para iniciar uma nova comanda interna." : "Restaurantes, farmácias, materiais de construção e comércios da sua região."}</p></div>
+        <div><span>LIIST Commerce</span><h1>{orderChannel === "internal" ? "Catálogos para comanda" : "Lojas e catálogos"}</h1><p>{orderChannel === "internal" ? "Selecione a filial para iniciar uma nova comanda interna." : "Restaurantes, farmácias, materiais de construção e comércios da sua região."}</p></div>
         {hasLocation ? <div className="discovery-radius"><MapPin size={17} /><span>{showingAll ? "Todas as lojas" : `Lojas em até ${STORE_RADIUS_KM} km`}</span><button type="button" onClick={onToggleAll}>{showingAll ? "Ver próximas" : "Ver todas"}</button></div> : null}
       </header>
 

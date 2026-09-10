@@ -1,6 +1,6 @@
-# LIIST
+# LIIST Commerce
 
-Aplicacao web de catalogo com carrinho e envio de pedido pelo WhatsApp. A primeira versao usa dados locais para validar a experiencia de compra e um painel interno para preparar integracoes por planilha, banco legado ou API.
+Aplicacao web da LIIST para catalogo com carrinho, pedido pelo WhatsApp, comanda interna e operacao por filial. A primeira versao usa Supabase e Cloudflare para validar a experiencia de venda e preparar integracoes por planilha, banco legado ou API.
 
 ## Rodar localmente
 

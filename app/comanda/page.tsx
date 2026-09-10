@@ -3,6 +3,7 @@
 import { ArrowLeft, ArrowRight, ClipboardList, LogOut, RefreshCw, UserRound } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState, type FormEvent } from "react";
+import { LiistCartMark } from "../../components/liist-brand";
 import { supabase } from "../../lib/supabase";
 import { CatalogApplication, type InternalOrderContext } from "../page";
 
@@ -154,8 +155,8 @@ export default function InternalCommandCatalogPage() {
     return (
       <main className="command-access-page">
         <section className="command-login-card">
-          <span className="command-login-icon"><ClipboardList size={25} /></span>
-          <div><span>Comanda da equipe</span><h1>Identifique-se</h1><p>O responsável ficará registrado na comanda.</p></div>
+          <LiistCartMark className="command-login-icon" />
+          <div><span>LIIST Commerce</span><h1>Identifique-se</h1><p>O responsável ficará registrado na comanda.</p></div>
           <form onSubmit={signIn}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error ? <p role="alert">{error}</p> : null}<button className="operation-primary" type="submit" disabled={submitting || !storeId}>{submitting ? "Entrando..." : "Entrar"} <ArrowRight size={17} /></button></form>
           {session ? <button className="operation-link-button" type="button" onClick={() => void supabase?.auth.signOut()}>Entrar com outro usuário</button> : null}
           <a href="/operacao"><ArrowLeft size={15} /> Portal operacional</a>

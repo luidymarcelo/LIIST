@@ -40,6 +40,7 @@ import {
 import type { Session } from "@supabase/supabase-js";
 import type { DataValidation, Worksheet } from "exceljs";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
+import { LiistBrand } from "../../components/liist-brand";
 import { supabase } from "../../lib/supabase";
 import {
   CompanyOperations,
@@ -3601,7 +3602,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   return (
     <main className="admin-page">
       <header className="admin-topbar">
-        <a href="/" className="admin-back"><ArrowLeft size={17} /> Catálogo público</a>
+        <div className="admin-topbar-left">
+          <LiistBrand compact context={isCompanyPortal ? "Portal da empresa" : isBranchPortal ? "Painel da filial" : "Administração"} />
+          <a href="/" className="admin-back"><ArrowLeft size={17} /> Catálogo público</a>
+        </div>
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className={isBusinessPortal ? "admin-page-inner" : "admin-page-inner admin-page-inner-platform"}>
@@ -3985,7 +3989,7 @@ function PlatformAdminSidebar({
 }) {
   return (
     <aside className="admin-console-sidebar">
-      <div className="admin-sidebar-brand"><span className="admin-sidebar-mark"><Building2 size={19} /></span><div><strong>LIIST</strong><small>Administração</small></div></div>
+      <div className="admin-sidebar-brand"><LiistBrand compact context="Administração" /></div>
       <nav className="admin-sidebar-nav" aria-label="Navegação administrativa">
         <button aria-current={section !== "new" ? "page" : undefined} className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
         <button aria-current={section === "new" ? "page" : undefined} className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
