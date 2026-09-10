@@ -15,10 +15,10 @@ export function LiistCartMark({ className = "", title = "LIIST Commerce" }: Liis
     <span className={`liist-cart-mark ${className}`.trim()} aria-hidden="true">
       <svg viewBox="0 0 64 64" role="img" aria-label={title} focusable="false">
         <rect className="liist-cart-mark-bg" x="3" y="3" width="58" height="58" rx="15" />
-        <path className="liist-cart-mark-line" d="M17.5 23h7.2l6.2 18h18.8" />
-        <path className="liist-cart-mark-line liist-cart-mark-ii" d="M34.8 30.6v7.6M41.2 30.6v7.6" />
-        <circle className="liist-cart-mark-dot" cx="31.7" cy="48.4" r="3.3" />
-        <circle className="liist-cart-mark-dot" cx="48.5" cy="48.4" r="3.3" />
+        <path className="liist-cart-mark-line" d="M17.5 21.6h7.1l5.8 14.8h19.3" />
+        <circle className="liist-cart-mark-dot" cx="32.1" cy="43.6" r="3.2" />
+        <circle className="liist-cart-mark-dot" cx="48.7" cy="43.6" r="3.2" />
+        <path className="liist-cart-mark-line liist-cart-mark-ii" d="M32.1 50.1v5.2M48.7 50.1v5.2" />
       </svg>
     </span>
   );
