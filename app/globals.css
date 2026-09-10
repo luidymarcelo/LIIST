@@ -2454,6 +2454,21 @@ img {
   font-weight: 850;
 }
 
+.checkout-location-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.checkout-location-actions .checkout-location-button {
+  width: 100%;
+}
+
+.checkout-location-button.secondary {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
 .checkout-location-button:disabled {
   cursor: wait;
   opacity: 0.65;

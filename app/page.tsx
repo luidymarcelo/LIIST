@@ -139,6 +139,7 @@ type Checkout = {
 };
 
 type Coordinates = { latitude: number; longitude: number };
+type GeocodedAddress = Coordinates & { label: string };
 type OrderTotals = {
   subtotal: number;
   delivery: number;
@@ -752,6 +753,72 @@ function distanceLabel(distanceKm: number) {
     : `${distanceKm.toFixed(1).replace(".", ",")} km`;
 }
 
+async function geocodeManualAddress(address: string, near?: Coordinates): Promise<GeocodedAddress | null> {
+  const query = /\bbrasil\b/i.test(address) ? address : `${address}, Brasil`;
+  const candidates: GeocodedAddress[] = [];
+
+  try {
+    const params = new URLSearchParams({ q: query, limit: "5", lang: "pt" });
+    const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (response.ok) {
+      const data = await response.json() as {
+        features?: Array<{
+          geometry?: { coordinates?: [number, number] };
+          properties?: { name?: string; city?: string; district?: string; state?: string; country?: string };
+        }>;
+      };
+      candidates.push(...(data.features ?? [])
+        .map((feature) => {
+          const [longitude, latitude] = feature.geometry?.coordinates ?? [NaN, NaN];
+          const label = [
+            feature.properties?.name,
+            feature.properties?.district,
+            feature.properties?.city,
+            feature.properties?.state,
+            feature.properties?.country,
+          ].filter(Boolean).join(", ");
+          return { latitude, longitude, label: label || address };
+        })
+        .filter((row) => Number.isFinite(row.latitude) && Number.isFinite(row.longitude)));
+    }
+  } catch {
+    // Try the secondary provider below.
+  }
+
+  if (!candidates.length) {
+    const params = new URLSearchParams({
+      q: query,
+      format: "json",
+      addressdetails: "1",
+      limit: "5",
+      countrycodes: "br",
+      "accept-language": "pt-BR",
+    });
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) throw new Error("geocode_failed");
+
+    const rows = await response.json() as Array<{ lat?: string; lon?: string; display_name?: string }>;
+    candidates.push(...rows
+      .map((row) => ({
+        latitude: Number(row.lat),
+        longitude: Number(row.lon),
+        label: row.display_name?.trim() || address,
+      }))
+      .filter((row) => Number.isFinite(row.latitude) && Number.isFinite(row.longitude)));
+  }
+
+  if (!candidates.length) return null;
+  if (!near) return candidates[0];
+
+  return candidates.sort((a, b) => distanceInKm(near, a) - distanceInKm(near, b))[0];
+}
+
 function buildWhatsappMessage({
   merchant,
   cart,
@@ -901,6 +968,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [locatingUser, setLocatingUser] = useState(false);
+  const [validatingManualLocation, setValidatingManualLocation] = useState(false);
   const [showAllStores, setShowAllStores] = useState(false);
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
@@ -1475,6 +1543,55 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     }
   }
 
+  async function validateManualDeliveryLocation() {
+    const targetMerchant = cartMerchant ?? merchant;
+    const typedAddress = checkout.address.trim();
+
+    if (typedAddress.length < 5) {
+      const message = "Digite rua, número, bairro e cidade antes de validar a localização.";
+      setCheckoutError(message);
+      setLocationStatus(message);
+      return;
+    }
+
+    if (!hasCoordinates(targetMerchant)) {
+      const message = "Esta filial precisa configurar sua localização antes de calcular a entrega por km.";
+      setCheckoutError(message);
+      setLocationStatus(message);
+      return;
+    }
+
+    setValidatingManualLocation(true);
+    setLocationStatus("Validando localização digitada...");
+    try {
+      const result = await geocodeManualAddress(typedAddress, targetMerchant);
+      if (!result) {
+        const message = "Não encontramos esse endereço. Confira rua, número, bairro e cidade.";
+        setCheckoutError(message);
+        setLocationStatus(message);
+        return;
+      }
+
+      const manualLocation = { latitude: result.latitude, longitude: result.longitude };
+      setUserLocation(manualLocation);
+      setCheckout((current) => ({
+        ...current,
+        address: typedAddress,
+        latitude: manualLocation.latitude,
+        longitude: manualLocation.longitude,
+      }));
+      setShowAllStores(false);
+      setLocationStatus("Endereço validado. A taxa por km foi recalculada.");
+      setCheckoutError("");
+    } catch {
+      const message = "Não foi possível validar o endereço agora. Tente novamente ou use sua localização atual.";
+      setCheckoutError(message);
+      setLocationStatus(message);
+    } finally {
+      setValidatingManualLocation(false);
+    }
+  }
+
   function addToCart(product: Product, selectedOptions: SelectedProductOption[] = []) {
     setCart((current) => {
       const currentMerchantId = current[0]?.merchantId;
@@ -1560,7 +1677,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         return null;
       }
       if (!hasCoordinates(checkout)) {
-        setCheckoutError("Use sua localização atual para calcular a taxa de entrega por km.");
+        setCheckoutError("Use sua localização atual ou valide o endereço digitado para calcular a taxa de entrega por km.");
         return null;
       }
     }
@@ -1925,8 +2042,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             onSendOrder={sendOrder}
             submittingOrder={submittingInternalOrder}
             locatingUser={locatingUser}
+            validatingManualLocation={validatingManualLocation}
             locationStatus={locationStatus}
             onUseCurrentLocation={useCurrentLocation}
+            onValidateManualLocation={validateManualDeliveryLocation}
           />
           {internalOrderCode ? (
             <div className="internal-order-success-backdrop" role="presentation">
@@ -2252,8 +2371,10 @@ function CartPanel({
   onSendOrder,
   submittingOrder,
   locatingUser,
+  validatingManualLocation,
   locationStatus,
   onUseCurrentLocation,
+  onValidateManualLocation,
 }: {
   cart: CartItem[];
   cartMerchant: Merchant;
@@ -2272,8 +2393,10 @@ function CartPanel({
   onSendOrder: () => void;
   submittingOrder: boolean;
   locatingUser: boolean;
+  validatingManualLocation: boolean;
   locationStatus: string;
   onUseCurrentLocation: () => void;
+  onValidateManualLocation: () => void;
 }) {
   const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
   const disabled = cart.length === 0;
@@ -2414,17 +2537,48 @@ function CartPanel({
           </label>
         ) : null}
 
+        {orderChannel === "whatsapp" ? fulfillment === "delivery" ? (
+            <label>
+              <MapPin size={16} />
+              <input
+                value={checkout.address}
+                onChange={(event) =>
+                  onCheckoutChange({ ...checkout, address: event.target.value, latitude: null, longitude: null })
+                }
+                placeholder={cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km" ? "Rua, número, bairro e cidade" : "Rua, número e bairro"}
+                autoComplete="street-address"
+                aria-invalid={Boolean(
+                  checkoutError && checkout.address.trim().length < 5 && !hasCoordinates(checkout),
+                )}
+              />
+            </label>
+          ) : (
+            <div className="pickup-address">
+              <MapPin size={16} />
+              <span>{cartMerchant.address}</span>
+              {hasCoordinates(cartMerchant) ? <a href={mapsUrl(cartMerchant)} target="_blank" rel="noreferrer">Ver mapa</a> : null}
+            </div>
+          ) : null}
+
         {orderChannel === "whatsapp" && fulfillment === "delivery" ? (
-          <button className="checkout-location-button" type="button" onClick={onUseCurrentLocation} disabled={locatingUser}>
-            {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
-            {locatingUser ? "Obtendo localização..." : hasCoordinates(checkout) ? "Atualizar minha localização" : "Usar minha localização"}
-          </button>
+          <div className="checkout-location-actions" aria-label="Opções de localização">
+            <button className="checkout-location-button" type="button" onClick={onUseCurrentLocation} disabled={locatingUser || validatingManualLocation}>
+              {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
+              {locatingUser ? "Obtendo..." : hasCoordinates(checkout) ? "Atualizar GPS" : "Usar minha localização"}
+            </button>
+            {cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km" ? (
+              <button className="checkout-location-button secondary" type="button" onClick={onValidateManualLocation} disabled={locatingUser || validatingManualLocation || checkout.address.trim().length < 5}>
+                {validatingManualLocation ? <RefreshCw size={17} /> : <MapPin size={17} />}
+                {validatingManualLocation ? "Validando..." : "Validar endereço"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
         {orderChannel === "whatsapp" && fulfillment === "delivery" && hasCoordinates(checkout) ? (
           <div className="checkout-location-confirmation">
             <CheckCircle2 size={16} />
-            <span>Localização anexada à comanda</span>
+            <span>{checkout.address.startsWith("Localização atual (") ? "Localização anexada à comanda" : "Endereço validado para calcular entrega"}</span>
             <a href={mapsUrl(checkout)} target="_blank" rel="noreferrer">Ver mapa</a>
           </div>
         ) : orderChannel === "whatsapp" && fulfillment === "delivery" && locationStatus ? (
@@ -2439,32 +2593,9 @@ function CartPanel({
               <b>{formatPrice(totals.delivery)}</b>
             </div>
           ) : (
-            <p className="checkout-delivery-guidance">{hasCoordinates(cartMerchant) ? "Use sua localização para calcular automaticamente a taxa de entrega." : "Esta filial precisa configurar sua localização para calcular a entrega por km."}</p>
+            <p className="checkout-delivery-guidance">{hasCoordinates(cartMerchant) ? "Use sua localização atual ou digite o endereço e clique em validar para calcular a taxa de entrega." : "Esta filial precisa configurar sua localização para calcular a entrega por km."}</p>
           )
         ) : null}
-
-        {orderChannel === "whatsapp" ? fulfillment === "delivery" ? (
-            <label>
-              <MapPin size={16} />
-              <input
-                value={checkout.address}
-                onChange={(event) =>
-                  onCheckoutChange({ ...checkout, address: event.target.value })
-                }
-                placeholder="Rua, número e bairro"
-                autoComplete="street-address"
-                aria-invalid={Boolean(
-                  checkoutError && checkout.address.trim().length < 5 && !hasCoordinates(checkout),
-                )}
-              />
-            </label>
-          ) : (
-            <div className="pickup-address">
-              <MapPin size={16} />
-              <span>{cartMerchant.address}</span>
-              {hasCoordinates(cartMerchant) ? <a href={mapsUrl(cartMerchant)} target="_blank" rel="noreferrer">Ver mapa</a> : null}
-            </div>
-          ) : null}
 
         {orderChannel === "whatsapp" && fulfillment === "delivery" ? (
           <label>
