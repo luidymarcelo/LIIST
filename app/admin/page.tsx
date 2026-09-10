@@ -588,7 +588,7 @@ function productImageLimitValue(value: unknown, fallback = 1) {
 }
 
 function companyThemeColor(value: unknown) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#111513";
 }
 
 function requestBrowserLocation(options: PositionOptions) {
@@ -649,7 +649,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
-  const [companyIdentity, setCompanyIdentity] = useState({ isActive: true, themeColor: "#176b52", profileImageUrl: "" });
+  const [companyIdentity, setCompanyIdentity] = useState({ isActive: true, themeColor: "#111513", profileImageUrl: "" });
   const [companyProfileFile, setCompanyProfileFile] = useState<File | null>(null);
   const [companyProfilePreview, setCompanyProfilePreview] = useState("");
   const [savingCompanyIdentity, setSavingCompanyIdentity] = useState(false);

@@ -8,17 +8,17 @@
   --muted: #676c68;
   --line: #dedfdb;
   --line-soft: rgba(24, 26, 25, 0.1);
-  --primary: #176b52;
-  --primary-dark: #125440;
-  --primary-soft: #edf4f1;
+  --primary: #111513;
+  --primary-dark: #050605;
+  --primary-soft: #eeeeeb;
   --primary-contrast: #ffffff;
-  --accent: #176b52;
+  --accent: #111513;
   --warning: #8a621d;
   --success: #176b52;
   --shadow: 0 10px 28px rgba(24, 26, 25, 0.07);
   --liist-ink: #111513;
-  --liist-accent: #176b52;
-  --liist-accent-soft: #dff2ec;
+  --liist-accent: #e84f8a;
+  --liist-accent-soft: #fde8f1;
 }
 
 .liist-brand {
@@ -37,36 +37,18 @@
 }
 
 .liist-cart-mark {
-  --liist-mark-bg: var(--liist-ink);
-  --liist-mark-fg: #ffffff;
   display: grid;
   width: 44px;
   height: 44px;
   flex: 0 0 44px;
   place-items: center;
-  color: var(--liist-mark-bg);
 }
 
-.liist-cart-mark svg {
+.liist-cart-mark img {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.liist-cart-mark-bg {
-  fill: currentColor;
-}
-
-.liist-cart-mark-line {
-  fill: none;
-  stroke: var(--liist-mark-fg);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 4.2;
-}
-
-.liist-cart-mark-dot {
-  fill: var(--liist-mark-fg);
+  object-fit: contain;
 }
 
 .liist-wordmark-wrap {
@@ -2462,9 +2444,9 @@ img {
   gap: 8px;
   align-items: center;
   min-height: 42px;
-  border: 1px solid rgba(23, 107, 82, 0.28);
+  border: 1px solid rgba(17, 21, 19, 0.18);
   border-radius: 8px;
-  background: rgba(23, 107, 82, 0.08);
+  background: rgba(17, 21, 19, 0.05);
   color: var(--primary-dark);
   font-weight: 850;
 }
@@ -2480,9 +2462,9 @@ img {
   gap: 7px;
   align-items: center;
   padding: 10px;
-  border: 1px solid rgba(23, 107, 82, 0.24);
+  border: 1px solid rgba(17, 21, 19, 0.16);
   border-radius: 8px;
-  background: rgba(23, 107, 82, 0.06);
+  background: rgba(17, 21, 19, 0.04);
   color: var(--primary-dark);
   font-size: 0.8rem;
   font-weight: 750;
@@ -2499,9 +2481,9 @@ img {
   gap: 8px;
   align-items: center;
   padding: 10px;
-  border: 1px solid rgba(23, 107, 82, 0.24);
+  border: 1px solid rgba(17, 21, 19, 0.16);
   border-radius: 8px;
-  background: rgba(23, 107, 82, 0.06);
+  background: rgba(17, 21, 19, 0.04);
   color: var(--primary-dark);
 }
 
@@ -3826,8 +3808,8 @@ img {
 }
 
 .product-status-badge.active {
-  background: rgba(23, 107, 82, 0.1);
-  color: #176b52;
+  background: rgba(17, 21, 19, 0.08);
+  color: var(--foreground);
 }
 
 .product-status-badge.inactive {
@@ -3909,8 +3891,8 @@ img {
 }
 
 .product-status-toggle[aria-checked="true"] {
-  border-color: #176b52;
-  background: #176b52;
+  border-color: var(--foreground);
+  background: var(--foreground);
 }
 
 .product-status-toggle[aria-checked="true"] > span {
@@ -3918,8 +3900,8 @@ img {
 }
 
 .product-photo-button {
-  border: 1px solid rgba(23, 107, 82, 0.28);
-  background: rgba(23, 107, 82, 0.08);
+  border: 1px solid rgba(17, 21, 19, 0.18);
+  background: rgba(17, 21, 19, 0.05);
   color: var(--primary-dark);
 }
 
@@ -5097,8 +5079,8 @@ img {
 }
 
 .identity-save-feedback.saving {
-  border-color: rgba(23, 107, 82, 0.24);
-  background: rgba(23, 107, 82, 0.06);
+  border-color: rgba(17, 21, 19, 0.16);
+  background: rgba(17, 21, 19, 0.04);
   color: var(--primary-dark);
 }
 
@@ -7982,13 +7964,13 @@ img {
 }
 
 .direct-store-theme .add-button {
-  background: var(--primary, #176b52);
+  background: var(--primary, #111513);
   color: #fff;
 }
 
 .direct-store-theme .quantity-stepper button,
 .direct-store-theme .cart-stepper button {
-  color: var(--primary-dark, #176b52);
+  color: var(--primary-dark, #050605);
 }
 
 .direct-store-theme .quantity-stepper button:hover,
@@ -8015,7 +7997,7 @@ img {
 
 .direct-store-theme .quantity-stepper button:active,
 .direct-store-theme .cart-stepper button:active {
-  background: var(--primary, #176b52);
+  background: var(--primary, #111513);
   color: var(--primary-contrast, #fff);
   filter: none;
   transform: scale(0.94);
@@ -8716,7 +8698,7 @@ img {
   .direct-store-theme .quantity-stepper button:hover:not(:active),
   .direct-store-theme .cart-stepper button:hover:not(:active) {
     background: transparent;
-    color: var(--primary-dark, #176b52);
+    color: var(--primary-dark, #050605);
   }
 
   .product-card:hover,
@@ -10910,10 +10892,6 @@ img {
   width: 100%;
 }
 
-.brand-lockup .liist-cart-mark {
-  --liist-mark-bg: var(--liist-accent);
-}
-
 .access-shell {
   display: grid;
   gap: 0;
@@ -10924,7 +10902,6 @@ img {
 }
 
 .access-brand .liist-cart-mark {
-  --liist-mark-bg: var(--liist-ink);
   width: 52px;
   height: 52px;
   flex-basis: 52px;
@@ -10953,19 +10930,6 @@ img {
 
 .admin-sidebar-brand .liist-brand {
   width: 100%;
-}
-
-.admin-sidebar-brand .liist-cart-mark,
-.admin-topbar-left .liist-cart-mark,
-.operation-login-mark.liist-cart-mark,
-.command-login-icon.liist-cart-mark {
-  --liist-mark-bg: var(--liist-ink);
-}
-
-.operation-login-mark.liist-cart-mark,
-.command-login-icon.liist-cart-mark {
-  background: transparent;
-  color: var(--liist-mark-bg);
 }
 
 .operation-login-card .liist-cart-mark,

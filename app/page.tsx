@@ -241,7 +241,7 @@ function merchantBranchLabel(merchant: Merchant) {
 }
 
 function normalizeThemeColor(value: unknown) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#111513";
 }
 
 function mixHexColor(color: string, target: "#000000" | "#ffffff", amount: number) {
@@ -350,7 +350,7 @@ const fallbackMerchants: Merchant[] = [
     id: "farmacia-vida",
     companyName: "Farmacia Vida",
     companyProfileImage: null,
-    themeColor: "#176b52",
+    themeColor: "#111513",
     name: "Farmacia Vida",
     segment: "Farmacia",
     tagline: "Medicamentos, dermocosmeticos e itens de cuidado diario.",
@@ -623,7 +623,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     id: store.slug,
     companyName: store.name,
     companyProfileImage: null,
-    themeColor: "#176b52",
+    themeColor: "#111513",
     name: store.name,
     segment: segmentLabels[store.segment ?? ""] ?? "Comércio",
     tagline: `Catálogo de produtos de ${store.name}.`,
@@ -643,7 +643,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     cover: null,
     coverNote: "",
     icon: "store",
-    palette: "#176b52",
+    palette: "#111513",
     categories: ["Mais pedidos"],
     products: [],
     integration: {
