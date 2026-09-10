@@ -46,3 +46,6 @@ next-env.d.ts
 /work/
 /.codex-ppt-build/
 /agents/liist-print-agent/print-outbox/
+/apresentacoes/LIIST-apresentacao-comercial-v*.pptx
+/apresentacoes/LIIST-Commerce-apresentacao-comercial-v*.pptx
+!/apresentacoes/LIIST-Commerce-apresentacao-comercial-v5.pptx
