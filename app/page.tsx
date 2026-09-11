@@ -1049,6 +1049,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const [merchants, setMerchants] = useState<Merchant[]>(
     hasSupabaseConfig ? [] : fallbackMerchants,
   );
+  const [catalogLoading, setCatalogLoading] = useState(hasSupabaseConfig);
   const [activeStoreId, setActiveStoreId] = useState<StoreId>("");
   const [activeCategory, setActiveCategory] = useState("Mais pedidos");
   const [search, setSearch] = useState("");
@@ -1118,44 +1119,46 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
       if (!supabase) return;
       const requestedStoreId = (internalOrderContext?.storeSlug ?? new URLSearchParams(window.location.search).get("loja")?.trim()) || null;
       setDirectStoreId(requestedStoreId);
+      setCatalogLoading(true);
 
-      const [storeResult, tenantParameterResult, storeParameterResult, companyResult, optionGroupResult] = await Promise.all([
-        supabase
-          .from("stores")
-          .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
-          .eq("is_active", true)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("tenant_parameters")
-          .select("tenant_id, parameter_key, parameter_value")
-          .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
-        supabase
-          .from("store_parameters")
-          .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
-        supabase.rpc("get_public_catalog_companies"),
-        supabase
-          .from("option_groups")
-          .select("id, store_id, name, min_selections, max_selections, sort_order, option_group_items(id, name, price_delta, sort_order, is_active), product_option_groups(product_id, sort_order)")
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true }),
-      ]);
-      let { data, error } = storeResult;
-      if (error && /product_images|relationship|schema cache/i.test(error.message)) {
-        const fallbackStoreResult = await supabase
-          .from("stores")
-          .select("*, categories(*), products(*)")
-          .eq("is_active", true)
-          .order("created_at", { ascending: true });
-        data = fallbackStoreResult.data;
-        error = fallbackStoreResult.error;
-      }
+      try {
+        const [storeResult, tenantParameterResult, storeParameterResult, companyResult, optionGroupResult] = await Promise.all([
+          supabase
+            .from("stores")
+            .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
+            .eq("is_active", true)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("tenant_parameters")
+            .select("tenant_id, parameter_key, parameter_value")
+            .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
+          supabase
+            .from("store_parameters")
+            .select("store_id, parameter_key, parameter_value")
+            .in("parameter_key", PUBLIC_CATALOG_PARAMETER_KEYS),
+          supabase.rpc("get_public_catalog_companies"),
+          supabase
+            .from("option_groups")
+            .select("id, store_id, name, min_selections, max_selections, sort_order, option_group_items(id, name, price_delta, sort_order, is_active), product_option_groups(product_id, sort_order)")
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true }),
+        ]);
+        let { data, error } = storeResult;
+        if (error && /product_images|relationship|schema cache/i.test(error.message)) {
+          const fallbackStoreResult = await supabase
+            .from("stores")
+            .select("*, categories(*), products(*)")
+            .eq("is_active", true)
+            .order("created_at", { ascending: true });
+          data = fallbackStoreResult.data;
+          error = fallbackStoreResult.error;
+        }
 
-      if (error || cancelled) return;
-      if (!data?.length) {
-        setMerchants([]);
-        return;
-      }
+        if (error || cancelled) return;
+        if (!data?.length) {
+          setMerchants([]);
+          return;
+        }
 
       const tenantFreightParameters = new Map(
         (tenantParameterResult.data ?? [])
@@ -1339,13 +1342,20 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         ];
       });
 
-      if (loadedMerchants.length) {
-        setMerchants(loadedMerchants);
-        setActiveStoreId(
-          requestedStoreId && loadedMerchants.some((store) => store.id === requestedStoreId)
-            ? requestedStoreId
-            : "",
-        );
+        if (loadedMerchants.length) {
+          setMerchants(loadedMerchants);
+          setActiveStoreId(
+            requestedStoreId && loadedMerchants.some((store) => store.id === requestedStoreId)
+              ? requestedStoreId
+              : "",
+          );
+        } else {
+          setMerchants([]);
+        }
+      } catch {
+        if (!cancelled) setMerchants([]);
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
       }
     }
 
@@ -2017,7 +2027,9 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         : null}
 
       {view === "catalog" ? (
-        !merchants.length ? (
+        catalogLoading ? (
+          <CatalogLoadingSkeleton directStore={Boolean(directStoreId)} />
+        ) : !merchants.length ? (
           <EmptyCatalog />
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
           <StoreNotFound orderChannel={orderChannel} />
@@ -2275,6 +2287,148 @@ function AdminLogin() {
       </button>
     </section>
   );
+}
+
+function CatalogLoadingSkeleton({ directStore }: { directStore: boolean }) {
+  if (directStore) {
+    return (
+      <section className="direct-store-page catalog-loading-skeleton" aria-label="Carregando catálogo">
+        <div className="merchant-presentation skeleton-merchant">
+          <div className="merchant-hero">
+            <SkeletonBlock className="skeleton-hero-fill" />
+          </div>
+          <div className="merchant-info-card">
+            <SkeletonBlock className="merchant-profile skeleton-profile" />
+            <div className="merchant-info-content">
+              <SkeletonBlock className="skeleton-line skeleton-title-line" />
+              <SkeletonBlock className="skeleton-line skeleton-branch-line" />
+              <SkeletonBlock className="skeleton-map" />
+              <SkeletonBlock className="skeleton-note-line" />
+            </div>
+          </div>
+        </div>
+
+        <div className="commerce-grid direct-store">
+          <section className="catalog-surface">
+            <nav className="category-strip skeleton-category-strip" aria-label="Carregando categorias">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <SkeletonBlock className="skeleton-category-pill" key={index} />
+              ))}
+            </nav>
+
+            <div className="catalog-category-list">
+              {Array.from({ length: 2 }).map((_, sectionIndex) => (
+                <section className="catalog-category-section skeleton-product-section" key={sectionIndex}>
+                  <header className="catalog-category-heading">
+                    <SkeletonBlock className="skeleton-line skeleton-section-title" />
+                    <SkeletonBlock className="skeleton-line skeleton-count-line" />
+                  </header>
+                  <div className="product-grid">
+                    {Array.from({ length: 4 }).map((_, productIndex) => (
+                      <article className="product-card skeleton-product-card" key={productIndex}>
+                        <SkeletonBlock className="product-card-image" />
+                        <div className="product-content">
+                          <div>
+                            <SkeletonBlock className="skeleton-line skeleton-product-name" />
+                            <SkeletonBlock className="skeleton-line skeleton-product-description" />
+                            <SkeletonBlock className="skeleton-line skeleton-product-description short" />
+                          </div>
+                          <footer>
+                            <SkeletonBlock className="skeleton-line skeleton-price-line" />
+                            <SkeletonBlock className="skeleton-add-button" />
+                          </footer>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </section>
+
+          <aside className="cart-panel skeleton-cart-panel" aria-hidden="true">
+            <div className="cart-header">
+              <div>
+                <SkeletonBlock className="skeleton-line skeleton-cart-title" />
+                <SkeletonBlock className="skeleton-line skeleton-cart-subtitle" />
+              </div>
+              <SkeletonBlock className="skeleton-cart-action" />
+            </div>
+            <div className="cart-scroll-area">
+              <div className="cart-items">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div className="cart-item skeleton-cart-item" key={index}>
+                    <SkeletonBlock className="cart-item-image" />
+                    <div>
+                      <SkeletonBlock className="skeleton-line skeleton-cart-item-title" />
+                      <SkeletonBlock className="skeleton-line skeleton-cart-item-price" />
+                    </div>
+                    <SkeletonBlock className="skeleton-cart-stepper" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="cart-footer">
+              <div className="cart-total">
+                <SkeletonBlock className="skeleton-line skeleton-total-line" />
+                <SkeletonBlock className="skeleton-line skeleton-total-line strong" />
+              </div>
+              <SkeletonBlock className="whatsapp-button skeleton-checkout-button" />
+            </div>
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="commerce-grid discovery catalog-loading-skeleton skeleton-discovery" aria-label="Carregando lojas">
+      <div className="store-discovery">
+        <header className="discovery-heading">
+          <div>
+            <SkeletonBlock className="skeleton-line skeleton-eyebrow-line" />
+            <SkeletonBlock className="skeleton-line skeleton-discovery-title" />
+            <SkeletonBlock className="skeleton-line skeleton-discovery-copy" />
+          </div>
+          <SkeletonBlock className="skeleton-discovery-filter" />
+        </header>
+
+        <div className="discovery-list-heading">
+          <div>
+            <SkeletonBlock className="skeleton-line skeleton-list-title" />
+            <SkeletonBlock className="skeleton-line skeleton-list-subtitle" />
+          </div>
+        </div>
+
+        <div className="discovery-store-grid">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <article className="discovery-store-card skeleton-store-card" key={index}>
+              <SkeletonBlock className="discovery-store-media" />
+              <div className="discovery-store-content">
+                <div className="discovery-store-title">
+                  <SkeletonBlock className="store-avatar" />
+                  <div>
+                    <SkeletonBlock className="skeleton-line skeleton-store-title" />
+                    <SkeletonBlock className="skeleton-line skeleton-store-branch" />
+                    <SkeletonBlock className="skeleton-line skeleton-store-address" />
+                  </div>
+                </div>
+                <SkeletonBlock className="skeleton-line skeleton-store-copy" />
+                <footer>
+                  <SkeletonBlock className="skeleton-line skeleton-store-meta" />
+                  <SkeletonBlock className="skeleton-line skeleton-store-meta" />
+                </footer>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return <span className={`skeleton-block ${className}`} aria-hidden="true" />;
 }
 
 function EmptyCatalog() {
