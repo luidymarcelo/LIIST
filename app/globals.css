@@ -1235,7 +1235,8 @@ img {
 .landing-hero {
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
-  gap: 70px;
+  column-gap: 70px;
+  row-gap: 38px;
   align-items: center;
   min-height: calc(100vh - 76px);
   padding: 74px 0 86px;
@@ -1289,13 +1290,12 @@ img {
 }
 
 .landing-mode-cards {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 0;
-  margin-top: 8px;
-  border: 1px solid rgba(16, 18, 17, 0.11);
-  border-radius: 22px;
-  background: #ffffff;
-  overflow: hidden;
+  gap: 24px;
+  margin-top: 0;
+  padding-top: 30px;
+  border-top: 1px solid rgba(16, 18, 17, 0.13);
 }
 
 .landing-mode-heading {
@@ -1303,8 +1303,6 @@ img {
   justify-content: space-between;
   gap: 24px;
   align-items: flex-end;
-  padding: 22px 28px;
-  border-bottom: 1px solid rgba(16, 18, 17, 0.09);
 }
 
 .landing-mode-heading span {
@@ -1320,14 +1318,14 @@ img {
 .landing-mode-heading span::before {
   content: "";
   display: block;
-  width: 18px;
-  height: 2px;
+  width: 28px;
+  height: 1px;
   border-radius: 999px;
-  background: var(--liist-accent);
+  background: rgba(16, 18, 17, 0.32);
 }
 
 .landing-mode-heading p {
-  max-width: 430px;
+  max-width: 520px;
   margin: 0;
   color: #68706a;
   font-size: 0.9rem;
@@ -1338,18 +1336,21 @@ img {
 .landing-mode-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
 }
 
 .landing-mode-options article {
   display: grid;
   align-content: start;
-  min-height: 306px;
-  padding: 30px;
+  min-height: 250px;
+  padding: 0 34px 0 0;
   background: transparent;
 }
 
 .landing-mode-options article + article {
   border-left: 1px solid rgba(16, 18, 17, 0.09);
+  padding-right: 0;
+  padding-left: 34px;
 }
 
 .landing-mode-label {
@@ -1368,9 +1369,9 @@ img {
 .landing-mode-options h2 {
   margin: 14px 0 0;
   color: #101211;
-  font-size: 1.72rem;
+  font-size: 1.56rem;
   font-weight: 560;
-  line-height: 1.13;
+  line-height: 1.16;
 }
 
 .landing-mode-options p {
@@ -1383,7 +1384,7 @@ img {
 .landing-mode-divider {
   width: 100%;
   height: 1px;
-  margin: 24px 0 18px;
+  margin: 22px 0 16px;
   background: rgba(16, 18, 17, 0.1);
 }
 
@@ -1916,13 +1917,15 @@ img {
 
   .landing-mode-cards {
     grid-template-columns: 1fr;
+    gap: 20px;
+    padding-top: 24px;
   }
 
   .landing-mode-heading {
     display: grid;
-    gap: 16px;
+    gap: 10px;
     align-items: flex-start;
-    padding: 18px;
+    padding: 0;
   }
 
   .landing-mode-heading p {
@@ -1936,12 +1939,14 @@ img {
 
   .landing-mode-options article {
     min-height: auto;
-    padding: 20px;
+    padding: 0;
   }
 
   .landing-mode-options article + article {
     border-top: 1px solid rgba(16, 18, 17, 0.09);
     border-left: 0;
+    padding-top: 20px;
+    padding-left: 0;
   }
 
   .landing-mode-options h2 {

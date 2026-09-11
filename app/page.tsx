@@ -2521,7 +2521,7 @@ function LandingPage() {
       <section className="landing-hero">
         <div className="landing-hero-copy">
           <span className="landing-kicker">LIIST Commerce</span>
-          <h1>Pedidos por WhatsApp e comandas internas, sem bagunça.</h1>
+          <h1>Pedido por WhatsApp e comanda interna, sem bagunça.</h1>
           <p>
             Para lojas e restaurantes que precisam vender por link, organizar produtos e controlar
             salão, cozinha e caixa quando houver atendimento interno.
@@ -2532,34 +2532,6 @@ function LandingPage() {
               <ChevronRight size={18} />
             </a>
             <a className="landing-secondary" href="/acesso">Acessar plataforma</a>
-          </div>
-          <div className="landing-mode-cards" aria-label="Formas de atendimento">
-            <div className="landing-mode-heading">
-              <span>Formas de atendimento</span>
-              <p>Dois caminhos para vender: link pelo WhatsApp ou comanda interna no salão.</p>
-            </div>
-            <div className="landing-mode-options">
-              <article>
-                <span className="landing-mode-label">Pedido por WhatsApp</span>
-                <h2>O cliente compra pelo link da filial.</h2>
-                <p>Ele escolhe os itens, confirma a entrega e envia uma comanda pronta para o WhatsApp da loja.</p>
-                <div className="landing-mode-divider" />
-                <div className="landing-mode-flow" aria-label="Como funciona no WhatsApp">
-                  <strong>Como funciona</strong>
-                  <span>Link enviado</span><i /><span>Carrinho</span><i /><span>Mensagem pronta</span>
-                </div>
-              </article>
-              <article>
-                <span className="landing-mode-label">Comanda interna</span>
-                <h2>Tablet ou garçom lançando no salão.</h2>
-                <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
-                <div className="landing-mode-divider" />
-                <div className="landing-mode-flow" aria-label="Como funciona na comanda interna">
-                  <strong>Como funciona</strong>
-                  <span>Mesa ou garçom</span><i /><span>Cozinha</span><i /><span>Caixa</span>
-                </div>
-              </article>
-            </div>
           </div>
         </div>
 
@@ -2582,6 +2554,35 @@ function LandingPage() {
               <li><span>Total</span><strong>R$ 77,80</strong></li>
             </ul>
             <footer><span>Cozinha</span><span>Caixa</span><span>WhatsApp</span></footer>
+          </div>
+        </div>
+
+        <div className="landing-mode-cards" aria-label="Formas de atendimento">
+          <div className="landing-mode-heading">
+            <span>Formas de atendimento</span>
+            <p>Dois caminhos para a filial trabalhar: venda pelo WhatsApp ou pedido interno no salão.</p>
+          </div>
+          <div className="landing-mode-options">
+            <article>
+              <span className="landing-mode-label">Pedido por WhatsApp</span>
+              <h2>O cliente compra pelo link da filial.</h2>
+              <p>Ele escolhe os itens, confirma a entrega e envia a comanda pronta para o WhatsApp da loja.</p>
+              <div className="landing-mode-divider" />
+              <div className="landing-mode-flow" aria-label="Como funciona no WhatsApp">
+                <strong>Como funciona</strong>
+                <span>Link enviado</span><i /><span>Carrinho</span><i /><span>Mensagem pronta</span>
+              </div>
+            </article>
+            <article>
+              <span className="landing-mode-label">Comanda interna</span>
+              <h2>Tablet ou garçom lançando no salão.</h2>
+              <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
+              <div className="landing-mode-divider" />
+              <div className="landing-mode-flow" aria-label="Como funciona na comanda interna">
+                <strong>Como funciona</strong>
+                <span>Mesa ou garçom</span><i /><span>Cozinha</span><i /><span>Caixa</span>
+              </div>
+            </article>
           </div>
         </div>
       </section>
