@@ -2535,14 +2535,28 @@ function LandingPage() {
           </div>
           <div className="landing-mode-cards" aria-label="Formas de pedido">
             <article>
-              <span><MessageCircle size={16} /> Pedido por WhatsApp</span>
-              <h2>Link da loja, carrinho e mensagem pronta.</h2>
-              <p>O cliente escolhe os produtos, informa a entrega e envia a comanda organizada para o WhatsApp da filial.</p>
+              <div>
+                <span><MessageCircle size={16} /> Pedido por WhatsApp</span>
+                <h2>Cliente em casa, pedido pronto no WhatsApp.</h2>
+                <p>Você envia o link da filial. A pessoa escolhe os itens, informa a entrega e manda a comanda organizada para a loja.</p>
+              </div>
+              <ol className="landing-mode-steps">
+                <li><b>1</b><span>Recebe o link</span></li>
+                <li><b>2</b><span>Monta o carrinho</span></li>
+                <li><b>3</b><span>Envia pelo WhatsApp</span></li>
+              </ol>
             </article>
             <article>
-              <span><ClipboardList size={16} /> Comanda interna</span>
-              <h2>Tablet ou garçom lançando direto no sistema.</h2>
-              <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
+              <div>
+                <span><ClipboardList size={16} /> Comanda interna</span>
+                <h2>Pedido na mesa, operação acompanhando.</h2>
+                <p>No salão, tablet ou garçom lança a comanda. Cozinha recebe, atendimento entrega e caixa fecha a conta.</p>
+              </div>
+              <ol className="landing-mode-steps">
+                <li><b>1</b><span>Mesa ou garçom</span></li>
+                <li><b>2</b><span>Cozinha acompanha</span></li>
+                <li><b>3</b><span>Caixa fecha</span></li>
+              </ol>
             </article>
           </div>
         </div>
