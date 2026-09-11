@@ -2520,11 +2520,11 @@ function LandingPage() {
 
       <section className="landing-hero">
         <div className="landing-hero-copy">
-          <span className="landing-kicker">WhatsApp e comanda interna</span>
-          <h1>Venda por WhatsApp. Lance comandas no salão.</h1>
+          <span className="landing-kicker">LIIST Commerce</span>
+          <h1>Pedidos por WhatsApp e comandas internas, sem bagunça.</h1>
           <p>
-            O LIIST cria o catálogo digital da filial para o cliente pedir de casa pelo WhatsApp
-            ou para a equipe lançar pedidos por mesa, tablet, cozinha e caixa.
+            Para lojas e restaurantes que precisam vender por link, organizar produtos e controlar
+            salão, cozinha e caixa quando houver atendimento interno.
           </p>
           <div className="landing-actions">
             <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
@@ -2535,28 +2535,22 @@ function LandingPage() {
           </div>
           <div className="landing-mode-cards" aria-label="Formas de pedido">
             <article>
-              <div>
-                <span><MessageCircle size={16} /> Pedido por WhatsApp</span>
-                <h2>Cliente em casa, pedido pronto no WhatsApp.</h2>
-                <p>Você envia o link da filial. A pessoa escolhe os itens, informa a entrega e manda a comanda organizada para a loja.</p>
+              <div className="landing-mode-index">01</div>
+              <div className="landing-mode-copy">
+                <span>Pedido por WhatsApp</span>
+                <h2>O cliente compra pelo link da filial.</h2>
+                <p>Ele escolhe os itens, confirma os dados da entrega e envia a comanda pronta para o WhatsApp da loja.</p>
               </div>
-              <ol className="landing-mode-steps">
-                <li><b>1</b><span>Recebe o link</span></li>
-                <li><b>2</b><span>Monta o carrinho</span></li>
-                <li><b>3</b><span>Envia pelo WhatsApp</span></li>
-              </ol>
+              <div className="landing-mode-flow"><span>Link</span><i /><span>Carrinho</span><i /><span>WhatsApp</span></div>
             </article>
             <article>
-              <div>
-                <span><ClipboardList size={16} /> Comanda interna</span>
-                <h2>Pedido na mesa, operação acompanhando.</h2>
-                <p>No salão, tablet ou garçom lança a comanda. Cozinha recebe, atendimento entrega e caixa fecha a conta.</p>
+              <div className="landing-mode-index">02</div>
+              <div className="landing-mode-copy">
+                <span>Comanda interna</span>
+                <h2>Tablet ou garçom lançando no salão.</h2>
+                <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
               </div>
-              <ol className="landing-mode-steps">
-                <li><b>1</b><span>Mesa ou garçom</span></li>
-                <li><b>2</b><span>Cozinha acompanha</span></li>
-                <li><b>3</b><span>Caixa fecha</span></li>
-              </ol>
+              <div className="landing-mode-flow"><span>Mesa</span><i /><span>Cozinha</span><i /><span>Caixa</span></div>
             </article>
           </div>
         </div>
