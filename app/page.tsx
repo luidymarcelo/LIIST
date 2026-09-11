@@ -43,6 +43,7 @@ type FulfillmentMode = "delivery" | "pickup";
 type DeliveryFeeType = "fixed" | "per_km";
 type OrderChannel = "whatsapp" | "internal";
 type OrderMode = OrderChannel | "both";
+type CatalogEntryMode = "pending" | "landing" | "catalog";
 type BusinessHoursDay = { weekday: number; isOpen: boolean; opensAt: string; closesAt: string };
 type BusinessHoursConfig = { days: BusinessHoursDay[] };
 type BusinessHoursStatus = { isConfigured: boolean; isOpen: boolean; label: string };
@@ -162,6 +163,7 @@ const ADDITIONS_PARAMETER_KEY = "enable_additions";
 const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
 const BUSINESS_HOURS_PARAMETER_KEY = "business_hours";
+const LIIST_CONTACT_WHATSAPP = "5547997295163";
 const PUBLIC_CATALOG_PARAMETER_KEYS = [
   FREIGHT_PARAMETER_KEY,
   DELIVERY_FEE_TYPE_PARAMETER_KEY,
@@ -1108,6 +1110,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const [locatingUser, setLocatingUser] = useState(false);
   const [validatingManualLocation, setValidatingManualLocation] = useState(false);
   const [showAllStores, setShowAllStores] = useState(false);
+  const [catalogEntryMode, setCatalogEntryMode] = useState<CatalogEntryMode>("pending");
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
   const [businessClock, setBusinessClock] = useState(0);
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
@@ -1156,9 +1159,21 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     let cancelled = false;
 
     async function loadCatalog() {
-      if (!supabase) return;
-      const requestedStoreId = (internalOrderContext?.storeSlug ?? new URLSearchParams(window.location.search).get("loja")?.trim()) || null;
+      const params = new URLSearchParams(window.location.search);
+      const requestedStoreId = (internalOrderContext?.storeSlug ?? params.get("loja")?.trim()) || null;
+      const wantsStoreDirectory = params.get("vitrines") === "1" || params.get("lojas") === "1";
       setDirectStoreId(requestedStoreId);
+      if (orderChannel === "whatsapp" && !requestedStoreId && !wantsStoreDirectory) {
+        setCatalogEntryMode("landing");
+        setCatalogLoading(false);
+        return;
+      }
+
+      setCatalogEntryMode("catalog");
+      if (!supabase) {
+        setCatalogLoading(false);
+        return;
+      }
       setCatalogLoading(true);
 
       try {
@@ -1408,7 +1423,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     return () => {
       cancelled = true;
     };
-  }, [internalOrderContext?.storeSlug]);
+  }, [internalOrderContext?.storeSlug, orderChannel]);
 
   useEffect(() => {
     const savedCart = window.localStorage.getItem(cartStorageKey)
@@ -2020,6 +2035,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     setView("catalog");
   }
 
+  if (catalogEntryMode === "landing") {
+    return <LandingPage />;
+  }
+
   return (
     <main className={directStoreId ? "shell direct-store-theme" : "shell"} style={directStoreId && displayMerchant ? catalogThemeStyle(displayMerchant.themeColor) : undefined}>
       {!directStoreId ? <header className="topbar">
@@ -2474,6 +2493,135 @@ function CatalogLoadingSkeleton({ directStore }: { directStore: boolean }) {
 
 function SkeletonBlock({ className = "" }: { className?: string }) {
   return <span className={`skeleton-block ${className}`} aria-hidden="true" />;
+}
+
+function LandingPage() {
+  const contactUrl = `https://wa.me/${LIIST_CONTACT_WHATSAPP}?text=${encodeURIComponent("Olá, quero conhecer o LIIST Commerce.")}`;
+  const accessLinks = [
+    { title: "Central administrativa", description: "Criação de empresas, filiais, acessos e parâmetros.", href: "/admin" },
+    { title: "Portal da empresa", description: "Catálogo, produtos, categorias, adicionais e identidade da marca.", href: "/empresa" },
+    { title: "Painel da filial", description: "Gestão limitada por CNPJ para quem cuida de uma unidade.", href: "/filial" },
+    { title: "Operação", description: "Atendimento, cozinha, caixa, mesas e comandas internas.", href: "/operacao" },
+  ];
+
+  return (
+    <main className="landing-page">
+      <header className="landing-topbar">
+        <a className="landing-brand" href="/" aria-label="LIIST Commerce">
+          <LiistBrand context="Commerce" />
+        </a>
+        <nav aria-label="Navegação da página inicial">
+          <a href="#produto">Produto</a>
+          <a href="#acesso">Acessos</a>
+          <a href="#contato">Contato</a>
+        </nav>
+        <a className="landing-topbar-action" href={contactUrl} target="_blank" rel="noopener noreferrer">Entre em contato</a>
+      </header>
+
+      <section className="landing-hero">
+        <div className="landing-hero-copy">
+          <span className="landing-kicker">Catálogo, pedido e comanda</span>
+          <h1>Venda por link. Controle no balcão.</h1>
+          <p>
+            O LIIST organiza catálogos digitais para lojas e restaurantes, com pedido por WhatsApp,
+            comanda interna, mesas, cozinha, caixa e importação por planilha.
+          </p>
+          <div className="landing-actions">
+            <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
+              Falar com a LIIST
+              <ChevronRight size={18} />
+            </a>
+            <a className="landing-secondary" href="/acesso">Acessar plataforma</a>
+          </div>
+          <dl className="landing-metrics" aria-label="Resumo do produto">
+            <div><dt>2</dt><dd>formas de pedido</dd></div>
+            <div><dt>4</dt><dd>áreas de acesso</dd></div>
+            <div><dt>1</dt><dd>link por filial</dd></div>
+          </dl>
+        </div>
+
+        <div className="landing-product-frame" aria-label="Prévia do fluxo de pedidos">
+          <div className="landing-phone-preview">
+            <div className="landing-phone-bar"><span>LIIST</span><small>Loja aberta</small></div>
+            <div className="landing-store-card">
+              <span className="landing-store-avatar"><img src="/liist-logo.svg" alt="" /></span>
+              <div><strong>Luizburger</strong><small>Centro</small></div>
+            </div>
+            <div className="landing-menu-row"><span>Combo artesanal</span><strong>R$ 32,90</strong></div>
+            <div className="landing-menu-row"><span>Batata individual</span><strong>R$ 11,00</strong></div>
+            <div className="landing-phone-button">Continuar pedido</div>
+          </div>
+          <div className="landing-order-preview">
+            <header><span>Comanda #184</span><strong>Mesa 06</strong></header>
+            <ul>
+              <li><span>2x Combo artesanal</span><small>+ queijo, + bacon</small></li>
+              <li><span>1x Refrigerante lata</span><small>Sem gelo</small></li>
+              <li><span>Total</span><strong>R$ 77,80</strong></li>
+            </ul>
+            <footer><span>Cozinha</span><span>Caixa</span><span>WhatsApp</span></footer>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section landing-split" id="produto">
+        <div>
+          <span className="landing-kicker">Como funciona</span>
+          <h2>Um sistema para vender fora e atender dentro da loja.</h2>
+        </div>
+        <div className="landing-flow-list">
+          <article><strong>Catálogo por filial</strong><p>Cada filial tem CNPJ, link próprio, identidade, capa, perfil, produtos, categorias e adicionais.</p></article>
+          <article><strong>Pedido por WhatsApp</strong><p>O cliente recebe o link, monta o carrinho e envia uma comanda organizada para o número da loja.</p></article>
+          <article><strong>Comanda interna</strong><p>A equipe usa o mesmo cardápio para lançar pedidos em mesa, cozinha acompanha e caixa fecha a conta.</p></article>
+          <article><strong>Cadastro rápido</strong><p>Produtos, categorias, adicionais e unidades podem ser mantidos pelo painel ou importados por planilha.</p></article>
+        </div>
+      </section>
+
+      <section className="landing-section landing-audience">
+        <article>
+          <span>Restaurantes</span>
+          <h2>Mesa, atendimento, cozinha e caixa no mesmo fluxo.</h2>
+          <p>Ideal para hamburguerias, pizzarias, lanchonetes e operações pequenas que precisam começar simples e crescer sem trocar de sistema.</p>
+        </article>
+        <article>
+          <span>Lojas</span>
+          <h2>Vitrine digital com pedido pronto para conversar.</h2>
+          <p>Funciona para farmácias, materiais de construção, lojas físicas e qualquer negócio que vende por atendimento direto.</p>
+        </article>
+      </section>
+
+      <section className="landing-section landing-access" id="acesso">
+        <div className="landing-section-heading">
+          <span className="landing-kicker">Acesse por aqui</span>
+          <h2>Entradas separadas para cada perfil.</h2>
+          <p>Administrador, proprietário, filial e operação entram pelo painel correto, sem misturar permissões.</p>
+        </div>
+        <div className="landing-access-grid">
+          {accessLinks.map((item) => (
+            <a className="landing-access-card" href={item.href} key={item.href}>
+              <span>{item.title}</span>
+              <p>{item.description}</p>
+              <ChevronRight size={18} />
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-section landing-contact" id="contato">
+        <div>
+          <span className="landing-kicker">Começar agora</span>
+          <h2>Monte sua primeira loja com a LIIST.</h2>
+          <p>Entre em contato para cadastrar a empresa, configurar filial, usuários, catálogo e o modo de pedido ideal.</p>
+        </div>
+        <div>
+          <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
+            Chamar no WhatsApp
+            <MessageCircle size={18} />
+          </a>
+          <a className="landing-secondary" href="/?vitrines=1">Ver vitrines cadastradas</a>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function EmptyCatalog() {
