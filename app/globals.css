@@ -1158,9 +1158,15 @@ img {
 }
 
 .landing-page {
+  --landing-title-weight: 600;
+  --landing-body-size: 1rem;
+  --landing-small-size: 0.86rem;
+  --landing-label-size: 0.78rem;
+
   min-height: 100vh;
   background: #f7f7f5;
   color: #101211;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 .landing-topbar {
@@ -1195,8 +1201,8 @@ img {
   min-height: 42px;
   border-radius: 999px;
   color: #3f4541;
-  font-size: 0.9rem;
-  font-weight: 560;
+  font-size: 0.88rem;
+  font-weight: 520;
   text-decoration: none;
 }
 
@@ -1250,8 +1256,8 @@ img {
 
 .landing-kicker {
   color: var(--liist-accent);
-  font-size: 0.76rem;
-  font-weight: 680;
+  font-size: var(--landing-label-size);
+  font-weight: 600;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -1265,17 +1271,17 @@ img {
 
 .landing-hero h1 {
   max-width: 720px;
-  font-size: 4.85rem;
-  font-weight: 620;
-  line-height: 0.98;
+  font-size: 4.6rem;
+  font-weight: var(--landing-title-weight);
+  line-height: 1.01;
 }
 
 .landing-hero-copy p,
 .landing-section p {
   margin: 0;
   color: #626864;
-  font-size: 1.04rem;
-  line-height: 1.65;
+  font-size: var(--landing-body-size);
+  line-height: 1.62;
 }
 
 .landing-hero-copy p {
@@ -1310,8 +1316,8 @@ img {
   align-items: center;
   gap: 10px;
   color: #101211;
-  font-size: 0.78rem;
-  font-weight: 640;
+  font-size: var(--landing-label-size);
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -1328,8 +1334,8 @@ img {
   max-width: 520px;
   margin: 0;
   color: #68706a;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  font-size: 0.92rem;
+  line-height: 1.5;
   text-align: right;
 }
 
@@ -1357,8 +1363,8 @@ img {
   display: inline-flex;
   align-items: center;
   color: #6f7671;
-  font-size: 0.74rem;
-  font-weight: 640;
+  font-size: var(--landing-label-size);
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -1369,15 +1375,15 @@ img {
 .landing-mode-options h2 {
   margin: 14px 0 0;
   color: #101211;
-  font-size: 1.56rem;
-  font-weight: 560;
-  line-height: 1.16;
+  font-size: 1.5rem;
+  font-weight: var(--landing-title-weight);
+  line-height: 1.18;
 }
 
 .landing-mode-options p {
   margin: 12px 0 0;
   color: #626864;
-  font-size: 0.98rem;
+  font-size: var(--landing-body-size);
   line-height: 1.58;
 }
 
@@ -1399,8 +1405,8 @@ img {
 .landing-mode-flow strong {
   flex-basis: 100%;
   color: #101211;
-  font-size: 0.86rem;
-  font-weight: 560;
+  font-size: var(--landing-small-size);
+  font-weight: 600;
 }
 
 .landing-mode-flow span {
@@ -1409,8 +1415,8 @@ img {
   border-radius: 999px;
   background: #fafaf8;
   color: #444a46;
-  font-size: 0.8rem;
-  font-weight: 540;
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 .landing-mode-flow i {
@@ -1427,8 +1433,8 @@ img {
   border-radius: 999px;
   background: #101211;
   color: #ffffff;
-  font-size: 0.96rem;
-  font-weight: 650;
+  font-size: 0.94rem;
+  font-weight: 580;
   text-decoration: none;
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 }
@@ -1470,15 +1476,15 @@ img {
 
 .landing-metrics dt {
   color: #101211;
-  font-size: 1.55rem;
-  font-weight: 700;
+  font-size: 1.48rem;
+  font-weight: 600;
   line-height: 1;
 }
 
 .landing-metrics dd {
   margin: 8px 0 0;
   color: #6b716d;
-  font-size: 0.86rem;
+  font-size: var(--landing-small-size);
   line-height: 1.35;
 }
 
@@ -1526,13 +1532,13 @@ img {
 .landing-menu-row strong,
 .landing-order-preview strong {
   color: #101211;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .landing-phone-bar small {
   color: var(--liist-accent);
-  font-size: 0.78rem;
-  font-weight: 650;
+  font-size: var(--landing-label-size);
+  font-weight: 600;
 }
 
 .landing-store-card {
@@ -1577,7 +1583,7 @@ img {
   padding: 0 2px;
   border-bottom: 1px solid rgba(16, 18, 17, 0.08);
   color: #4a504c;
-  font-size: 0.96rem;
+  font-size: 0.94rem;
 }
 
 .landing-phone-button {
@@ -1588,7 +1594,8 @@ img {
   border-radius: 999px;
   background: #101211;
   color: #ffffff;
-  font-weight: 650;
+  font-size: 0.94rem;
+  font-weight: 580;
 }
 
 .landing-order-preview {
@@ -1608,7 +1615,7 @@ img {
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(16, 18, 17, 0.08);
   color: #6b716d;
-  font-size: 0.88rem;
+  font-size: var(--landing-small-size);
 }
 
 .landing-order-preview ul {
@@ -1646,8 +1653,8 @@ img {
   border-radius: 999px;
   background: #f2f2ef;
   color: #4f5551;
-  font-size: 0.76rem;
-  font-weight: 620;
+  font-size: var(--landing-label-size);
+  font-weight: 520;
 }
 
 .landing-section {
@@ -1665,9 +1672,9 @@ img {
 .landing-section h2 {
   margin-top: 10px;
   max-width: 650px;
-  font-size: 2.55rem;
-  font-weight: 680;
-  line-height: 1.08;
+  font-size: 2.36rem;
+  font-weight: var(--landing-title-weight);
+  line-height: 1.12;
 }
 
 .landing-flow-list {
@@ -1695,11 +1702,11 @@ img {
 .landing-access-card span,
 .landing-audience span {
   color: #101211;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .landing-flow-list p {
-  font-size: 0.96rem;
+  font-size: 0.94rem;
 }
 
 .landing-audience {
@@ -1716,13 +1723,13 @@ img {
 
 .landing-audience span {
   color: var(--liist-accent);
-  font-size: 0.8rem;
+  font-size: var(--landing-label-size);
   text-transform: uppercase;
 }
 
 .landing-audience h2 {
   max-width: 500px;
-  font-size: 2.25rem;
+  font-size: 2.16rem;
 }
 
 .landing-audience p {
@@ -1772,7 +1779,7 @@ img {
 
 .landing-access-card p {
   padding-right: 10px;
-  font-size: 0.86rem;
+  font-size: var(--landing-small-size);
   line-height: 1.5;
 }
 
@@ -1840,7 +1847,7 @@ img {
   }
 
   .landing-hero h1 {
-    font-size: 4rem;
+    font-size: 3.72rem;
   }
 
   .landing-product-frame {
@@ -1877,7 +1884,7 @@ img {
   .landing-topbar-action {
     min-height: 40px;
     padding: 0 13px;
-    font-size: 0.84rem;
+    font-size: 0.86rem;
   }
 
   .landing-hero,
@@ -1890,13 +1897,13 @@ img {
   }
 
   .landing-hero h1 {
-    font-size: 3rem;
-    line-height: 1;
+    font-size: 2.72rem;
+    line-height: 1.04;
   }
 
   .landing-hero-copy p,
   .landing-section p {
-    font-size: 0.98rem;
+    font-size: 0.96rem;
   }
 
   .landing-actions,
@@ -1950,7 +1957,7 @@ img {
   }
 
   .landing-mode-options h2 {
-    font-size: 1.36rem;
+    font-size: 1.32rem;
   }
 
   .landing-mode-flow {
@@ -1990,7 +1997,7 @@ img {
 
   .landing-section h2,
   .landing-audience h2 {
-    font-size: 2rem;
+    font-size: 1.9rem;
   }
 
   .landing-flow-list article {
