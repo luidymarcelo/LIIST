@@ -2533,25 +2533,33 @@ function LandingPage() {
             </a>
             <a className="landing-secondary" href="/acesso">Acessar plataforma</a>
           </div>
-          <div className="landing-mode-cards" aria-label="Formas de pedido">
-            <article>
-              <div className="landing-mode-index">01</div>
-              <div className="landing-mode-copy">
-                <span>Pedido por WhatsApp</span>
+          <div className="landing-mode-cards" aria-label="Formas de atendimento">
+            <div className="landing-mode-heading">
+              <span>Formas de atendimento</span>
+              <p>Dois caminhos para vender: link pelo WhatsApp ou comanda interna no salão.</p>
+            </div>
+            <div className="landing-mode-options">
+              <article>
+                <span className="landing-mode-label">Pedido por WhatsApp</span>
                 <h2>O cliente compra pelo link da filial.</h2>
-                <p>Ele escolhe os itens, confirma os dados da entrega e envia a comanda pronta para o WhatsApp da loja.</p>
-              </div>
-              <div className="landing-mode-flow"><span>Link</span><i /><span>Carrinho</span><i /><span>WhatsApp</span></div>
-            </article>
-            <article>
-              <div className="landing-mode-index">02</div>
-              <div className="landing-mode-copy">
-                <span>Comanda interna</span>
+                <p>Ele escolhe os itens, confirma a entrega e envia uma comanda pronta para o WhatsApp da loja.</p>
+                <div className="landing-mode-divider" />
+                <div className="landing-mode-flow" aria-label="Como funciona no WhatsApp">
+                  <strong>Como funciona</strong>
+                  <span>Link enviado</span><i /><span>Carrinho</span><i /><span>Mensagem pronta</span>
+                </div>
+              </article>
+              <article>
+                <span className="landing-mode-label">Comanda interna</span>
                 <h2>Tablet ou garçom lançando no salão.</h2>
                 <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
-              </div>
-              <div className="landing-mode-flow"><span>Mesa</span><i /><span>Cozinha</span><i /><span>Caixa</span></div>
-            </article>
+                <div className="landing-mode-divider" />
+                <div className="landing-mode-flow" aria-label="Como funciona na comanda interna">
+                  <strong>Como funciona</strong>
+                  <span>Mesa ou garçom</span><i /><span>Cozinha</span><i /><span>Caixa</span>
+                </div>
+              </article>
+            </div>
           </div>
         </div>
 

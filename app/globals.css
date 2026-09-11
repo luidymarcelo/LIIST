@@ -1290,7 +1290,6 @@ img {
 
 .landing-mode-cards {
   display: grid;
-  grid-template-columns: 1fr;
   gap: 0;
   margin-top: 8px;
   border: 1px solid rgba(16, 18, 17, 0.11);
@@ -1299,38 +1298,61 @@ img {
   overflow: hidden;
 }
 
-.landing-mode-cards article {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) minmax(230px, 0.52fr);
+.landing-mode-heading {
+  display: flex;
+  justify-content: space-between;
   gap: 24px;
+  align-items: flex-end;
+  padding: 22px 28px;
+  border-bottom: 1px solid rgba(16, 18, 17, 0.09);
+}
+
+.landing-mode-heading span {
+  display: inline-flex;
   align-items: center;
-  min-height: 158px;
-  padding: 26px 28px;
+  gap: 10px;
+  color: #101211;
+  font-size: 0.78rem;
+  font-weight: 640;
+  text-transform: uppercase;
+}
+
+.landing-mode-heading span::before {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--liist-accent);
+}
+
+.landing-mode-heading p {
+  max-width: 430px;
+  margin: 0;
+  color: #68706a;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.landing-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.landing-mode-options article {
+  display: grid;
+  align-content: start;
+  min-height: 306px;
+  padding: 30px;
   background: transparent;
 }
 
-.landing-mode-cards article + article {
-  border-top: 1px solid rgba(16, 18, 17, 0.09);
+.landing-mode-options article + article {
+  border-left: 1px solid rgba(16, 18, 17, 0.09);
 }
 
-.landing-mode-index {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid rgba(16, 18, 17, 0.12);
-  border-radius: 999px;
-  color: #101211;
-  font-size: 0.82rem;
-  font-weight: 560;
-}
-
-.landing-mode-cards article:first-child .landing-mode-index {
-  border-color: rgba(232, 79, 138, 0.34);
-  color: var(--liist-accent);
-}
-
-.landing-mode-copy > span {
+.landing-mode-label {
   display: inline-flex;
   align-items: center;
   color: #6f7671;
@@ -1339,19 +1361,30 @@ img {
   text-transform: uppercase;
 }
 
-.landing-mode-cards h2 {
-  margin: 12px 0 0;
+.landing-mode-options article:first-child .landing-mode-label {
+  color: var(--liist-accent);
+}
+
+.landing-mode-options h2 {
+  margin: 14px 0 0;
   color: #101211;
   font-size: 1.72rem;
   font-weight: 560;
-  line-height: 1.14;
+  line-height: 1.13;
 }
 
-.landing-mode-cards p {
-  margin: 10px 0 0;
+.landing-mode-options p {
+  margin: 12px 0 0;
   color: #626864;
-  font-size: 0.96rem;
-  line-height: 1.55;
+  font-size: 0.98rem;
+  line-height: 1.58;
+}
+
+.landing-mode-divider {
+  width: 100%;
+  height: 1px;
+  margin: 24px 0 18px;
+  background: rgba(16, 18, 17, 0.1);
 }
 
 .landing-mode-flow {
@@ -1359,31 +1392,31 @@ img {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  justify-content: flex-end;
-  color: #3f4541;
+  color: #444a46;
+}
+
+.landing-mode-flow strong {
+  flex-basis: 100%;
+  color: #101211;
+  font-size: 0.86rem;
+  font-weight: 560;
 }
 
 .landing-mode-flow span {
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid rgba(16, 18, 17, 0.1);
   border-radius: 999px;
   background: #fafaf8;
   color: #444a46;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 540;
 }
 
 .landing-mode-flow i {
   display: block;
-  width: 20px;
+  width: 18px;
   height: 1px;
   background: rgba(16, 18, 17, 0.18);
-}
-
-.landing-mode-cards article:first-child .landing-mode-flow span:first-child {
-  border-color: rgba(232, 79, 138, 0.28);
-  background: var(--liist-accent);
-  color: #ffffff;
 }
 
 .landing-primary {
@@ -1885,20 +1918,34 @@ img {
     grid-template-columns: 1fr;
   }
 
-  .landing-mode-cards article {
-    grid-template-columns: 1fr;
+  .landing-mode-heading {
+    display: grid;
     gap: 16px;
+    align-items: flex-start;
+    padding: 18px;
+  }
+
+  .landing-mode-heading p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .landing-mode-options {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-mode-options article {
     min-height: auto;
     padding: 20px;
   }
 
-  .landing-mode-cards h2 {
-    font-size: 1.35rem;
+  .landing-mode-options article + article {
+    border-top: 1px solid rgba(16, 18, 17, 0.09);
+    border-left: 0;
   }
 
-  .landing-mode-index {
-    width: 38px;
-    height: 38px;
+  .landing-mode-options h2 {
+    font-size: 1.36rem;
   }
 
   .landing-mode-flow {
