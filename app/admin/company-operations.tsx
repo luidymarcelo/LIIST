@@ -98,6 +98,12 @@ function formatCnpj(value: string | null | undefined) {
     .replace(/(\d{4})(\d)/, "$1-$2");
 }
 
+function branchPublicIdentifier(branch: OperationsBranch) {
+  const cnpj = branch.cnpj?.replace(/\D/g, "") ?? "";
+  if (cnpj.length === 14) return cnpj;
+  return branch.id || branch.slug;
+}
+
 function formatPhone(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 2) return digits.length ? `(${digits}` : "";
@@ -451,7 +457,7 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
   }
 
   function staffUrl() {
-    return branch ? `${window.location.origin}/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}` : "";
+    return branch ? `${window.location.origin}/comanda?loja=${encodeURIComponent(branchPublicIdentifier(branch))}&filial=${encodeURIComponent(branch.id)}` : "";
   }
 
   async function copyLink(url: string, label: string) {

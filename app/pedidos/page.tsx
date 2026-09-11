@@ -19,7 +19,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type Branch = { id: string; name: string; slug: string; tenant_id: string };
+type Branch = { id: string; name: string; slug: string; cnpj?: string | null; tenant_id: string };
 type Tenant = { id: string; name: string };
 type OperationalRole = "owner" | "branch_manager" | "waiter" | "cashier" | "kitchen" | "supervisor";
 type OperationalView = "atendimento" | "cozinha" | "caixa";
@@ -91,6 +91,22 @@ const viewLabels: Record<OperationalView, string> = { atendimento: "Atendimento"
 const paymentMethods = ["Pix", "Dinheiro", "Cartão de crédito", "Cartão de débito"];
 const OPERATION_CNPJ_STORAGE_KEY = "liist-operation-cnpj";
 const BRANCH_CNPJ_STORAGE_KEY = "liist-branch-cnpj";
+
+function branchPublicIdentifier(branch: Branch | undefined) {
+  const cnpj = branch?.cnpj?.replace(/\D/g, "") ?? "";
+  if (cnpj.length === 14) return cnpj;
+  return branch?.id ?? branch?.slug ?? "";
+}
+
+function commandCatalogPath(branch: Branch | undefined, tableId: string) {
+  if (!branch) return "/comanda";
+  const params = new URLSearchParams({
+    loja: branchPublicIdentifier(branch),
+    filial: branch.id,
+    mesa: tableId,
+  });
+  return `/comanda?${params.toString()}`;
+}
 
 function workspaceRoles(access: WorkspaceResponse["access"]) {
   const roles = Array.isArray(access?.roles) ? access.roles.filter(Boolean) : [];
@@ -432,7 +448,7 @@ function WaiterView({ sessions, orders, branch, flow, savingKey, canPrint, onPri
     return <article className={`waiter-session-card ${isClosing ? "closing" : available.length ? "has-ready" : ""}`} key={tableSession.id}><header><div><span>{tableSession.restaurant_tables?.code ?? "–"}</span><div><h3>{tableLabel(tableSession)}</h3><small>Aberta há {elapsedLabel(tableSession.opened_at)}</small></div></div><em>{isClosing ? tableSession.payment_status === "paid" ? "Pago" : "Fechamento" : available.length ? `${available.length} para entregar` : "Em atendimento"}</em></header><div className="waiter-account-summary"><span>{sessionOrders.length} comanda(s)</span><span>{delivered}/{items.length} itens entregues</span><b>{currency.format(total)}</b></div><div className="waiter-order-list">{sessionOrders.map((order) => <article key={order.id}><header><span>{order.order_code}</span><small>{time.format(new Date(order.created_at))}</small></header><ul>{order.order_items.map((item) => {
       const canDeliver = item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready");
       return <li className={item.delivery_status === "delivered" ? "delivered" : canDeliver ? "ready" : ""} key={item.id}><div><span>{item.quantity}x {item.product_name}</span>{optionLabel(item) ? <small>{optionLabel(item)}</small> : null}</div>{item.delivery_status === "delivered" ? <em><Check size={14} /> Entregue</em> : canDeliver ? <button type="button" onClick={() => onDeliverItem(order.id, item.id)} disabled={Boolean(savingKey)}>Entregar</button> : <em>{flow === "complete" ? "Na cozinha" : "Pendente"}</em>}</li>;
-    })}</ul>{order.notes ? <p>Observação: {order.notes}</p> : null}<div className="workflow-order-actions">{order.order_items.some((item) => item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready")) ? <button className="workflow-text-action" type="button" onClick={() => onDeliverOrder(order.id)} disabled={Boolean(savingKey)}>Confirmar itens disponíveis desta comanda</button> : null}{canPrint ? <button className="workflow-print-action" type="button" onClick={() => onPrint(order)} disabled={Boolean(savingKey)}><Printer size={15} /> {savingKey === `print-${order.id}` ? "Enviando..." : "Imprimir comanda"}</button> : null}</div></article>)}</div><footer>{!isClosing && branch ? <a className="operation-secondary" href={`/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}&mesa=${encodeURIComponent(tableSession.table_id)}`}>Adicionar pedido</a> : null}{!isClosing && available.length ? <button className="operation-primary" type="button" onClick={() => onDeliverSession(tableSession.id)} disabled={Boolean(savingKey)}>{savingKey === tableSession.id ? "Confirmando..." : `Entregar ${available.length} item(ns)`}</button> : null}{!isClosing && sessionOrders.length ? <button className="workflow-close-action" type="button" onClick={() => onRequestClosing(tableSession.id)} disabled={Boolean(savingKey)}>Solicitar fechamento</button> : isClosing ? <span className="workflow-waiting-label"><Clock3 size={15} /> Aguardando o caixa</span> : null}</footer></article>;
+    })}</ul>{order.notes ? <p>Observação: {order.notes}</p> : null}<div className="workflow-order-actions">{order.order_items.some((item) => item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready")) ? <button className="workflow-text-action" type="button" onClick={() => onDeliverOrder(order.id)} disabled={Boolean(savingKey)}>Confirmar itens disponíveis desta comanda</button> : null}{canPrint ? <button className="workflow-print-action" type="button" onClick={() => onPrint(order)} disabled={Boolean(savingKey)}><Printer size={15} /> {savingKey === `print-${order.id}` ? "Enviando..." : "Imprimir comanda"}</button> : null}</div></article>)}</div><footer>{!isClosing && branch ? <a className="operation-secondary" href={commandCatalogPath(branch, tableSession.table_id)}>Adicionar pedido</a> : null}{!isClosing && available.length ? <button className="operation-primary" type="button" onClick={() => onDeliverSession(tableSession.id)} disabled={Boolean(savingKey)}>{savingKey === tableSession.id ? "Confirmando..." : `Entregar ${available.length} item(ns)`}</button> : null}{!isClosing && sessionOrders.length ? <button className="workflow-close-action" type="button" onClick={() => onRequestClosing(tableSession.id)} disabled={Boolean(savingKey)}>Solicitar fechamento</button> : isClosing ? <span className="workflow-waiting-label"><Clock3 size={15} /> Aguardando o caixa</span> : null}</footer></article>;
   })}{!sessions.length ? <div className="workflow-empty"><UtensilsCrossed size={25} /><h2>Nenhuma mesa ocupada</h2><p>As mesas aparecem aqui assim que o primeiro pedido é enviado.</p></div> : null}</div></section>;
 }
 

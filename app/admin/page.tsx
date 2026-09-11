@@ -4371,10 +4371,19 @@ function BranchDetailsEditor({
   );
 }
 
-function branchOrderPath(branchSlug: string, channel: Exclude<OrderMode, "both">, branchId?: string) {
+function normalizeBranchCnpj(value: string | null | undefined) {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  return digits.length === 14 ? digits : "";
+}
+
+function branchPublicIdentifier(branch: Pick<Branch, "id" | "slug" | "cnpj">) {
+  return normalizeBranchCnpj(branch.cnpj) || branch.id || branch.slug;
+}
+
+function branchOrderPath(branch: Pick<Branch, "id" | "slug" | "cnpj">, channel: Exclude<OrderMode, "both">) {
   const path = channel === "internal" ? "/comanda" : "/";
-  const branchContext = channel === "internal" && branchId ? `&filial=${encodeURIComponent(branchId)}` : "";
-  return `${path}?loja=${encodeURIComponent(branchSlug)}${branchContext}`;
+  const branchContext = channel === "internal" ? `&filial=${encodeURIComponent(branch.id)}` : "";
+  return `${path}?loja=${encodeURIComponent(branchPublicIdentifier(branch))}${branchContext}`;
 }
 
 function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode }) {
@@ -4382,7 +4391,7 @@ function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode })
   const channels = (["whatsapp", "internal"] as const).filter((channel) => mode === "both" || mode === channel);
 
   async function copyLink(channel: "whatsapp" | "internal") {
-    const path = branchOrderPath(branch.slug, channel, branch.id);
+    const path = branchOrderPath(branch, channel);
     const url = new URL(path, window.location.origin).toString();
     try {
       await navigator.clipboard.writeText(url);
@@ -4406,7 +4415,7 @@ function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode })
       <div>
         {channels.map((channel) => {
           const isInternal = channel === "internal";
-          const path = branchOrderPath(branch.slug, channel, branch.id);
+          const path = branchOrderPath(branch, channel);
           return (
             <article key={channel}>
               <span>{isInternal ? <ClipboardList size={17} /> : <MessageSquareText size={17} />}<span><strong>{isInternal ? "Equipe · Comanda interna" : "Cliente · WhatsApp"}</strong><small>{isInternal ? "/comanda" : "/?loja"}</small></span></span>

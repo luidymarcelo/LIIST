@@ -86,6 +86,22 @@ function storedOperationCnpj() {
     ?? "";
 }
 
+function branchPublicIdentifier(branch: OperationalWorkspace["branches"][number] | undefined) {
+  const cnpj = branch?.cnpj?.replace(/\D/g, "") ?? "";
+  if (cnpj.length === 14) return cnpj;
+  return branch?.id ?? branch?.slug ?? "";
+}
+
+function commandCatalogPath(branch: OperationalWorkspace["branches"][number] | undefined, tableId?: string) {
+  if (!branch) return "/pedidos?visao=atendimento";
+  const params = new URLSearchParams({
+    loja: branchPublicIdentifier(branch),
+    filial: branch.id,
+  });
+  if (tableId) params.set("mesa", tableId);
+  return `/comanda?${params.toString()}`;
+}
+
 export default function OperationPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [workspace, setWorkspace] = useState<OperationalWorkspace | null>(null);
@@ -371,7 +387,7 @@ export default function OperationPage() {
         {notification ? <div className="workflow-notice operation-ready-notice" role="status"><ChefHat size={17} /> {notification}<a href="/pedidos?visao=atendimento">Ver pedido</a></div> : null}
 
         <section className="operation-role-actions">
-          {canCreateOrders ? <article><span><ClipboardList size={20} /></span><div><strong>Atendimento</strong><small>Mesas, entregas e solicitações de fechamento</small></div><a href={tables.length ? "/pedidos?visao=atendimento" : branch ? `/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}` : "/pedidos?visao=atendimento"}>Abrir <ArrowRight size={15} /></a></article> : null}
+          {canCreateOrders ? <article><span><ClipboardList size={20} /></span><div><strong>Atendimento</strong><small>Mesas, entregas e solicitações de fechamento</small></div><a href={tables.length ? "/pedidos?visao=atendimento" : commandCatalogPath(branch)}>Abrir <ArrowRight size={15} /></a></article> : null}
           {canSeeProduction ? <article><span><ChefHat size={20} /></span><div><strong>Produção</strong><small>Pedidos novos, em preparo e prontos</small></div><a href="/pedidos?visao=cozinha">Abrir <ArrowRight size={15} /></a></article> : null}
           {canSeeCashier ? <article><span><CreditCard size={20} /></span><div><strong>Caixa</strong><small>Contas abertas, pagamentos e fechamento</small></div><a href="/pedidos?visao=caixa">Abrir <ArrowRight size={15} /></a></article> : null}
         </section>
@@ -402,7 +418,7 @@ export default function OperationPage() {
                   {table.session_id ? <div className="operation-table-summary"><span>{table.order_count} comanda(s)</span><b>{operationCurrency.format(table.total)}</b></div> : null}
                   <footer>
                     {!table.session_id && tableOrderingEnabled ? <button type="button" className="operation-secondary" disabled={Boolean(openingTableId)} onClick={() => void openTable(table)}>{openingTableId === table.id ? <RefreshCw className="spinning" size={15} /> : <Store size={15} />} Abrir mesa</button> : null}
-                    {staffOrderingEnabled && !isClosing ? <a className="operation-primary compact" href={`/comanda?loja=${encodeURIComponent(branch?.slug ?? "")}&filial=${encodeURIComponent(branch?.id ?? "")}&mesa=${encodeURIComponent(table.id)}`}>{table.session_id ? "Adicionar" : "Nova comanda"} <ArrowRight size={15} /></a> : null}
+                    {staffOrderingEnabled && !isClosing ? <a className="operation-primary compact" href={commandCatalogPath(branch, table.id)}>{table.session_id ? "Adicionar" : "Nova comanda"} <ArrowRight size={15} /></a> : null}
                     {table.session_id && !isClosing && table.ready_items ? <a className="operation-secondary" href="/pedidos?visao=atendimento">Entregar</a> : null}
                     {table.session_id && !isClosing && table.order_count ? <button type="button" className="operation-secondary" disabled={Boolean(openingTableId)} onClick={() => void requestClosing(table)}>Fechar conta</button> : null}
                     {isClosing ? <a className="operation-secondary" href={canSeeCashier ? "/pedidos?visao=caixa" : "/pedidos?visao=atendimento"}>{isPaid && canSeeCashier ? "Liberar" : "Ver conta"}</a> : null}

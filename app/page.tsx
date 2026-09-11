@@ -87,6 +87,8 @@ type PublicCompanyIdentity = {
 type Merchant = {
   id: StoreId;
   databaseId?: string;
+  slug?: string | null;
+  cnpj?: string | null;
   orderMode?: OrderMode;
   companyName: string;
   companyProfileImage: string | null;
@@ -304,9 +306,44 @@ function catalogLocationError(error: GeolocationPositionError) {
   return "Não foi possível obter sua localização.";
 }
 
-function storeCatalogUrl(storeId: StoreId, channel: OrderChannel = "whatsapp") {
+type StorePublicIdentity = {
+  id?: string | null;
+  databaseId?: string | null;
+  slug?: string | null;
+  cnpj?: string | null;
+};
+
+function normalizePublicCnpj(value: unknown) {
+  const digits = typeof value === "string" || typeof value === "number"
+    ? String(value).replace(/\D/g, "")
+    : "";
+  return digits.length === 14 ? digits : "";
+}
+
+function storePublicIdentifier(store: StorePublicIdentity) {
+  return normalizePublicCnpj(store.cnpj)
+    || store.databaseId
+    || store.id
+    || store.slug
+    || "";
+}
+
+function merchantMatchesLookup(store: StorePublicIdentity, lookup: string | null | undefined) {
+  const value = lookup?.trim();
+  if (!value) return false;
+  const lookupCnpj = normalizePublicCnpj(value);
+  const candidates = [store.id, store.databaseId, store.slug, store.cnpj]
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+
+  return candidates.some((candidate) => {
+    if (candidate === value) return true;
+    return Boolean(lookupCnpj && normalizePublicCnpj(candidate) === lookupCnpj);
+  });
+}
+
+function storeCatalogUrl(store: StorePublicIdentity, channel: OrderChannel = "whatsapp") {
   const path = channel === "internal" ? "/comanda" : "/";
-  return `${path}?loja=${encodeURIComponent(storeId)}`;
+  return `${path}?loja=${encodeURIComponent(storePublicIdentifier(store))}`;
 }
 
 function categorySectionId(storeId: StoreId, category: string) {
@@ -715,9 +752,12 @@ const segmentLabels: Record<string, string> = {
   retail: "Comércio",
 };
 
-function neutralMerchant(store: { id: string; slug: string; name: string; segment?: string | null; latitude?: number | null; longitude?: number | null }): Merchant {
+function neutralMerchant(store: { id: string; slug: string; cnpj?: string | null; name: string; segment?: string | null; latitude?: number | null; longitude?: number | null }): Merchant {
   return {
-    id: store.slug,
+    id: storePublicIdentifier(store),
+    databaseId: store.id,
+    slug: store.slug,
+    cnpj: store.cnpj ?? null,
     companyName: store.name,
     companyProfileImage: null,
     themeColor: "#111513",
@@ -1086,7 +1126,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     merchants[0] ??
     fallbackMerchants[0];
   const displayMerchant = directStoreId
-    ? merchants.find((store) => store.id === directStoreId) ?? null
+    ? merchants.find((store) => merchantMatchesLookup(store, directStoreId)) ?? null
     : merchant;
   const compactInternalCatalog =
     orderChannel === "internal" &&
@@ -1298,8 +1338,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         return [
           {
             ...baseMerchant,
-            id: store.slug,
+            id: storePublicIdentifier({ id: store.id, slug: store.slug, cnpj: store.cnpj }),
             databaseId: store.id,
+            slug: store.slug,
+            cnpj: store.cnpj ?? null,
             orderMode: storeOrderModes.get(store.id)
               ?? tenantOrderModes.get(store.tenant_id)
               ?? "whatsapp",
@@ -1343,10 +1385,13 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
       });
 
         if (loadedMerchants.length) {
+          const requestedMerchant = requestedStoreId
+            ? loadedMerchants.find((store) => merchantMatchesLookup(store, requestedStoreId))
+            : null;
           setMerchants(loadedMerchants);
           setActiveStoreId(
-            requestedStoreId && loadedMerchants.some((store) => store.id === requestedStoreId)
-              ? requestedStoreId
+            requestedMerchant
+              ? requestedMerchant.id
               : "",
           );
         } else {
@@ -2031,7 +2076,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
           <CatalogLoadingSkeleton directStore={Boolean(directStoreId)} />
         ) : !merchants.length ? (
           <EmptyCatalog />
-        ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
+        ) : directStoreId && !merchants.some((store) => merchantMatchesLookup(store, directStoreId)) ? (
           <StoreNotFound orderChannel={orderChannel} />
         ) : directStoreId && displayMerchant && !orderChannelAvailable(displayMerchant.orderMode, orderChannel) ? (
           <OrderChannelUnavailable orderChannel={orderChannel} />
@@ -2495,7 +2540,7 @@ function StoreDiscovery({
             const currentDistance = distances.get(store.id);
             const branchName = merchantBranchLabel(store);
             return (
-              <a className="discovery-store-card" href={storeCatalogUrl(store.id, orderChannel)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
+              <a className="discovery-store-card" href={storeCatalogUrl(store, orderChannel)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
                 <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /></div>
                 <div className="discovery-store-content">
                   <div className="discovery-store-title"><span className={store.companyProfileImage ? "store-avatar company-profile" : "store-avatar"}>{store.companyProfileImage ? <img src={store.companyProfileImage} alt="" /> : <Icon size={20} />}</span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>

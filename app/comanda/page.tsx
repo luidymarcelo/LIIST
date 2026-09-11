@@ -9,12 +9,21 @@ import { CatalogApplication, type InternalOrderContext } from "../page";
 
 type OperationalContext = {
   tenant: { id: string; name: string };
-  branches: Array<{ id: string; name: string; slug: string }>;
+  branches: Array<{ id: string; name: string; slug: string; cnpj?: string | null }>;
   access: { role: string; roles?: string[]; name: string };
   operation?: { entry_mode?: "table" | "staff" | "both"; customer_name_mode?: "hidden" | "optional" | "required" };
   error?: string;
 };
 type RestaurantTable = { id: string; code: string; name: string | null; is_active: boolean; session_status?: "open" | "awaiting_payment" | null };
+
+function normalizeCnpj(value: string | null | undefined) {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  return digits.length === 14 ? digits : "";
+}
+
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
 
 function commandError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? "");
@@ -39,21 +48,26 @@ export default function InternalCommandCatalogPage() {
     if (!supabase) return null;
     const params = new URLSearchParams(window.location.search);
     const requestedStoreId = params.get("filial")?.trim() ?? "";
-    const requestedSlug = params.get("loja")?.trim() ?? "";
-    const query = supabase.from("stores").select("id, slug, name").eq("is_active", true);
+    const requestedStoreLookup = params.get("loja")?.trim() ?? "";
+    const requestedCnpj = normalizeCnpj(requestedStoreLookup);
+    const query = supabase.from("stores").select("id, slug, cnpj, name").eq("is_active", true);
     const { data, error: storeError } = requestedStoreId
       ? await query.eq("id", requestedStoreId).maybeSingle()
-      : requestedSlug
-        ? await query.eq("slug", requestedSlug).limit(1).maybeSingle()
-        : { data: null, error: null };
+      : requestedCnpj
+        ? await query.eq("cnpj", requestedCnpj).maybeSingle()
+        : looksLikeUuid(requestedStoreLookup)
+          ? await query.eq("id", requestedStoreLookup).maybeSingle()
+          : requestedStoreLookup
+            ? await query.eq("slug", requestedStoreLookup).limit(1).maybeSingle()
+            : { data: null, error: null };
     if (storeError || !data) {
       setError(storeError?.message ?? "Filial não identificada neste link.");
       setLoading(false);
       return null;
     }
     setStoreId(data.id);
-    setStoreSlug(data.slug);
-    return data as { id: string; slug: string; name: string };
+    setStoreSlug(normalizeCnpj(data.cnpj) || data.slug);
+    return data as { id: string; slug: string; cnpj?: string | null; name: string };
   }
 
   async function authorize(currentSession: Session, resolvedStoreId = storeId) {
