@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  Clock,
   ClipboardList,
   Copy,
   Download,
@@ -170,6 +171,8 @@ type OrderMode = "whatsapp" | "internal" | "both";
 type BranchOrderMode = "inherit" | OrderMode;
 type PrintMode = "disabled" | "manual" | "automatic" | "manual_and_automatic";
 type BranchPrintMode = "inherit" | PrintMode;
+type BusinessHoursDay = { weekday: number; isOpen: boolean; opensAt: string; closesAt: string };
+type BusinessHoursConfig = { days: BusinessHoursDay[] };
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type AdminCompanyIdentityRow = {
@@ -202,6 +205,7 @@ const ADDITIONS_PARAMETER_KEY = "enable_additions";
 const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
 const PRINT_MODE_PARAMETER_KEY = "internal_print_mode";
+const BUSINESS_HOURS_PARAMETER_KEY = "business_hours";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 const COVER_NOTE_MAX_LENGTH = 160;
@@ -233,6 +237,16 @@ const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
 const EXCEL_ADDITION_GROUP_TABLE_NAME = "CatalogAdditionGroups";
 const EXCEL_MEASUREMENT_UNIT_TABLE_NAME = "CatalogMeasurementUnits";
+const BUSINESS_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const BUSINESS_WEEKDAYS = [
+  { value: 1, short: "Seg", label: "Segunda-feira" },
+  { value: 2, short: "Ter", label: "Terça-feira" },
+  { value: 3, short: "Qua", label: "Quarta-feira" },
+  { value: 4, short: "Qui", label: "Quinta-feira" },
+  { value: 5, short: "Sex", label: "Sexta-feira" },
+  { value: 6, short: "Sáb", label: "Sábado" },
+  { value: 0, short: "Dom", label: "Domingo" },
+];
 
 type WorksheetWithRangeValidation = Worksheet & {
   dataValidations: {
@@ -580,6 +594,66 @@ function printModeLabel(mode: PrintMode) {
   return "Desativada";
 }
 
+function businessTimeValue(value: unknown, fallback: string) {
+  return typeof value === "string" && BUSINESS_TIME_PATTERN.test(value) ? value : fallback;
+}
+
+function createDefaultBusinessHours(): BusinessHoursConfig {
+  return {
+    days: BUSINESS_WEEKDAYS.map((day) => ({
+      weekday: day.value,
+      isOpen: day.value >= 1 && day.value <= 5,
+      opensAt: "08:00",
+      closesAt: "18:00",
+    })),
+  };
+}
+
+function businessHoursValue(value: unknown, fallback = createDefaultBusinessHours()): BusinessHoursConfig {
+  if (!value || typeof value !== "object") return fallback;
+  const source = value as { days?: unknown };
+  if (!Array.isArray(source.days)) return fallback;
+
+  const parsedDays = new Map<number, BusinessHoursDay>();
+  for (const item of source.days) {
+    if (!item || typeof item !== "object") continue;
+    const day = item as Partial<BusinessHoursDay>;
+    const weekday = Number(day.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) continue;
+    parsedDays.set(weekday, {
+      weekday,
+      isOpen: Boolean(day.isOpen),
+      opensAt: businessTimeValue(day.opensAt, "08:00"),
+      closesAt: businessTimeValue(day.closesAt, "18:00"),
+    });
+  }
+
+  if (!parsedDays.size) return fallback;
+  return {
+    days: BUSINESS_WEEKDAYS.map((day) => parsedDays.get(day.value) ?? {
+      weekday: day.value,
+      isOpen: false,
+      opensAt: "08:00",
+      closesAt: "18:00",
+    }),
+  };
+}
+
+function updateBusinessHoursDay(config: BusinessHoursConfig, weekday: number, patch: Partial<BusinessHoursDay>): BusinessHoursConfig {
+  return {
+    days: businessHoursValue(config).days.map((day) => (
+      day.weekday === weekday ? { ...day, ...patch, weekday } : day
+    )),
+  };
+}
+
+function businessHoursSummary(config: BusinessHoursConfig) {
+  const openDays = businessHoursValue(config).days.filter((day) => day.isOpen);
+  if (!openDays.length) return "Fechado";
+  if (openDays.length === 7) return "Todos os dias";
+  return `${openDays.length} dias ativos`;
+}
+
 function productImageLimitValue(value: unknown, fallback = 1) {
   const parsed = Number(value);
   return Number.isInteger(parsed)
@@ -680,6 +754,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [branchCompactInternalCatalogModes, setBranchCompactInternalCatalogModes] = useState<Record<string, CompactInternalCatalogMode>>({});
   const [companyPrintMode, setCompanyPrintMode] = useState<PrintMode>("disabled");
   const [branchPrintModes, setBranchPrintModes] = useState<Record<string, BranchPrintMode>>({});
+  const [branchBusinessHours, setBranchBusinessHours] = useState<Record<string, BusinessHoursConfig>>({});
   const [generatingPrintInstallerId, setGeneratingPrintInstallerId] = useState("");
   const [activeControlsStock, setActiveControlsStock] = useState(true);
   const [activeEnablesAdditions, setActiveEnablesAdditions] = useState(false);
@@ -1726,6 +1801,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setBranchOrderModes({});
     setBranchCompactInternalCatalogModes({});
     setBranchPrintModes({});
+    setBranchBusinessHours({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -1742,7 +1818,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY, BUSINESS_HOURS_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult, tenantIdentityResult] = await Promise.all([
@@ -1851,6 +1927,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         .filter((row) => row.parameter_key === PRINT_MODE_PARAMETER_KEY)
         .map((row) => [row.store_id, printModeValue(row.parameter_value)] as const),
     );
+    const businessHoursParameterByStore = new Map<string, BusinessHoursConfig>();
+    for (const row of branchParameterResult.data ?? []) {
+      if (row.parameter_key !== BUSINESS_HOURS_PARAMETER_KEY) continue;
+      businessHoursParameterByStore.set(row.store_id, businessHoursValue(row.parameter_value));
+    }
     const nextBranchFreightModes = Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
@@ -1895,6 +1976,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       branch.id,
       printModeParameterByStore.get(branch.id) ?? "inherit",
     ])) as Record<string, BranchPrintMode>;
+    const nextBranchBusinessHours = Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      businessHoursParameterByStore.get(branch.id) ?? createDefaultBusinessHours(),
+    ])) as Record<string, BusinessHoursConfig>;
     setBranchFreightModes(nextBranchFreightModes);
     setBranchDeliveryFeeTypeModes(nextBranchDeliveryFeeTypeModes);
     setBranchCatalogLayouts(nextBranchCatalogLayouts);
@@ -1904,6 +1989,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setBranchOrderModes(nextBranchOrderModes);
     setBranchCompactInternalCatalogModes(nextBranchCompactInternalCatalogModes);
     setBranchPrintModes(nextBranchPrintModes);
+    setBranchBusinessHours(nextBranchBusinessHours);
     if (nextActiveBranchId) {
       const nextStockMode = nextBranchStockControlModes[nextActiveBranchId] ?? "inherit";
       const nextAdditionsMode = nextBranchAdditionsModes[nextActiveBranchId] ?? "inherit";
@@ -2022,6 +2108,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     const orderMode = branchOrderModes[branch.id] ?? "inherit";
     const compactInternalCatalogMode = branchCompactInternalCatalogModes[branch.id] ?? "inherit";
     const printMode = branchPrintModes[branch.id] ?? "inherit";
+    const businessHours = businessHoursValue(branchBusinessHours[branch.id] ?? createDefaultBusinessHours());
     const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
@@ -2139,8 +2226,15 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           is_public: false,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
+    const businessHoursParameterRequest = await supabase.from("store_parameters").upsert({
+      store_id: branch.id,
+      parameter_key: BUSINESS_HOURS_PARAMETER_KEY,
+      parameter_value: businessHours,
+      is_public: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error ?? additionsParameterRequest.error ?? orderModeParameterRequest.error ?? compactInternalCatalogParameterRequest.error ?? printModeParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error ?? additionsParameterRequest.error ?? orderModeParameterRequest.error ?? compactInternalCatalogParameterRequest.error ?? printModeParameterRequest.error ?? businessHoursParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -2480,6 +2574,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setBranchAdditionsModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchOrderModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchPrintModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchBusinessHours((current) => ({ ...current, [branchRow.id]: createDefaultBusinessHours() }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
     setShowBranchForm(false);
@@ -2525,15 +2620,28 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       cover_note: branchDetailsForm.coverNote.trim() || null,
       is_active: branchDetailsForm.isActive,
     };
+    const businessHours = businessHoursValue(branchBusinessHours[activeBranchId] ?? createDefaultBusinessHours());
     setSavingBranchDetails(true);
     setMessage("");
     const { error } = await supabase
       .from("stores")
       .update(branchUpdate)
       .eq("id", activeBranchId);
-    setSavingBranchDetails(false);
     if (error) {
+      setSavingBranchDetails(false);
       setMessage(error.message);
+      return;
+    }
+    const { error: businessHoursError } = await supabase.from("store_parameters").upsert({
+      store_id: activeBranchId,
+      parameter_key: BUSINESS_HOURS_PARAMETER_KEY,
+      parameter_value: businessHours,
+      is_public: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "store_id,parameter_key" });
+    setSavingBranchDetails(false);
+    if (businessHoursError) {
+      setMessage(businessHoursError.message);
       return;
     }
 
@@ -3787,6 +3895,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     branchCompactInternalCatalogModes={branchCompactInternalCatalogModes}
                     companyPrintMode={companyPrintMode}
                     branchPrintModes={branchPrintModes}
+                    branchBusinessHours={branchBusinessHours}
                     generatingPrintInstallerId={generatingPrintInstallerId}
                     loading={loadingSettings}
                     saving={savingParameters}
@@ -3811,6 +3920,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     onBranchCompactInternalCatalogModeChange={(branchId, mode) => setBranchCompactInternalCatalogModes((current) => ({ ...current, [branchId]: mode }))}
                     onCompanyPrintModeChange={setCompanyPrintMode}
                     onBranchPrintModeChange={(branchId, mode) => setBranchPrintModes((current) => ({ ...current, [branchId]: mode }))}
+                    onBranchBusinessHoursChange={(branchId, config) => setBranchBusinessHours((current) => ({ ...current, [branchId]: config }))}
                     onDownloadPrintAgentInstaller={(branch) => void downloadPrintAgentInstaller(branch)}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
@@ -3856,7 +3966,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
               </form>
             ) : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} coverUrl={coverImagePreview || activeBranch.cover_image_url || ""} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
+            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} coverUrl={coverImagePreview || activeBranch.cover_image_url || ""} details={branchDetailsForm} businessHours={branchBusinessHours[activeBranch.id] ?? createDefaultBusinessHours()} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onBusinessHoursChange={(config) => setBranchBusinessHours((current) => ({ ...current, [activeBranch.id]: config }))} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">
                 {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
@@ -4203,12 +4313,14 @@ function BranchDetailsEditor({
   branch,
   coverUrl,
   details,
+  businessHours,
   location,
   locating,
   validatingLocation,
   saving,
   issue,
   onDetailsChange,
+  onBusinessHoursChange,
   onAddressChange,
   onCaptureLocation,
   onValidateLocation,
@@ -4218,12 +4330,14 @@ function BranchDetailsEditor({
   branch: Branch;
   coverUrl: string;
   details: BranchDetailsForm;
+  businessHours: BusinessHoursConfig;
   location: BranchLocationValue;
   locating: boolean;
   validatingLocation: boolean;
   saving: boolean;
   issue: string;
   onDetailsChange: (details: BranchDetailsForm) => void;
+  onBusinessHoursChange: (config: BusinessHoursConfig) => void;
   onAddressChange: (address: string) => void;
   onCaptureLocation: () => void;
   onValidateLocation: () => void;
@@ -4244,6 +4358,13 @@ function BranchDetailsEditor({
         coverUrl={coverUrl}
         onNoteChange={(coverNote) => onDetailsChange({ ...details, coverNote })}
       />
+      <section className="branch-business-hours-section">
+        <div className="branch-cover-note-heading">
+          <Clock size={18} />
+          <span><strong>Horário de funcionamento</strong><small>Usado para exibir o status da loja no catálogo.</small></span>
+        </div>
+        <BusinessHoursEditor branchName={branch.name} config={businessHours} onChange={onBusinessHoursChange} />
+      </section>
       <BranchLocationPicker value={location} locating={locating} validating={validatingLocation} issue={issue} onAddressChange={onAddressChange} onUseCurrent={onCaptureLocation} onValidate={onValidateLocation} />
       <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving || locating || validatingLocation}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
     </form>
@@ -4322,6 +4443,7 @@ function ParameterWorkspace({
   branchCompactInternalCatalogModes,
   companyPrintMode,
   branchPrintModes,
+  branchBusinessHours,
   generatingPrintInstallerId,
   loading,
   saving,
@@ -4346,6 +4468,7 @@ function ParameterWorkspace({
   onBranchCompactInternalCatalogModeChange,
   onCompanyPrintModeChange,
   onBranchPrintModeChange,
+  onBranchBusinessHoursChange,
   onDownloadPrintAgentInstaller,
   onSaveCompany,
   onSaveBranch,
@@ -4373,6 +4496,7 @@ function ParameterWorkspace({
   branchCompactInternalCatalogModes: Record<string, CompactInternalCatalogMode>;
   companyPrintMode: PrintMode;
   branchPrintModes: Record<string, BranchPrintMode>;
+  branchBusinessHours: Record<string, BusinessHoursConfig>;
   generatingPrintInstallerId: string;
   loading: boolean;
   saving: boolean;
@@ -4397,6 +4521,7 @@ function ParameterWorkspace({
   onBranchCompactInternalCatalogModeChange: (branchId: string, mode: CompactInternalCatalogMode) => void;
   onCompanyPrintModeChange: (mode: PrintMode) => void;
   onBranchPrintModeChange: (branchId: string, mode: BranchPrintMode) => void;
+  onBranchBusinessHoursChange: (branchId: string, config: BusinessHoursConfig) => void;
   onDownloadPrintAgentInstaller: (branch: Branch) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
@@ -4420,6 +4545,7 @@ function ParameterWorkspace({
   const activeCompactInternalCatalog = activeCompactInternalCatalogMode === "inherit" ? companyCompactInternalCatalog : activeCompactInternalCatalogMode === "enabled";
   const activePrintMode = activeBranch ? branchPrintModes[activeBranch.id] ?? "inherit" : "inherit";
   const activePrintModeValue = activePrintMode === "inherit" ? companyPrintMode : activePrintMode;
+  const activeBusinessHours = activeBranch ? branchBusinessHours[activeBranch.id] ?? createDefaultBusinessHours() : createDefaultBusinessHours();
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
   const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
@@ -4442,7 +4568,7 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>8 parâmetros</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>{scope === "company" ? "8" : "9"} parâmetros</span></header>
             {scope === "company" ? (
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
@@ -4583,6 +4709,19 @@ function ParameterWorkspace({
               </form>
               <form className="parameter-compact-form" onSubmit={onSaveBranch}>
                 <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon schedule"><Clock size={19} /></span><span className="parameter-item-name"><strong>Horário de funcionamento</strong><small>Atendimento · Configuração da filial</small></span><strong className="parameter-value-badge">{businessHoursSummary(activeBusinessHours)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch business-hours-parameter">
+                    <BusinessHoursEditor
+                      branchName={activeBranch.name}
+                      config={activeBusinessHours}
+                      onChange={(config) => onBranchBusinessHoursChange(activeBranch.id, config)}
+                    />
+                    <footer className="parameter-form-footer"><span>Quando a loja estiver fechada, a vitrine mostra um aviso discreto no perfil.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
                   <summary><span className="parameter-item-icon stock"><Package size={19} /></span><span className="parameter-item-name"><strong>Controle de estoque</strong><small>Produtos · {activeStockControlMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeStockControl ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeStockControl ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
                   <div className="parameter-compact-body branch">
                     <fieldset className="parameter-mode-fieldset">
@@ -4716,6 +4855,47 @@ function ParameterWorkspace({
 
 function ParameterToggle({ checked, title, description, onChange }: { checked: boolean; title: string; description: string; onChange: (checked: boolean) => void }) {
   return <label className="parameter-toggle-row"><span><strong>{title}</strong><small>{description}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true"><b /></i></label>;
+}
+
+function BusinessHoursEditor({ config, branchName, onChange }: { config: BusinessHoursConfig; branchName: string; onChange: (config: BusinessHoursConfig) => void }) {
+  const value = businessHoursValue(config);
+  return (
+    <div className="business-hours-editor" aria-label={`Horário de funcionamento de ${branchName}`}>
+      {value.days.map((day) => {
+        const weekday = BUSINESS_WEEKDAYS.find((item) => item.value === day.weekday);
+        return (
+          <div className={day.isOpen ? "business-hours-line open" : "business-hours-line"} key={day.weekday}>
+            <label className="business-hours-day-toggle">
+              <input
+                type="checkbox"
+                checked={day.isOpen}
+                onChange={(event) => onChange(updateBusinessHoursDay(value, day.weekday, { isOpen: event.target.checked }))}
+              />
+              <span>{weekday?.short ?? "Dia"}</span>
+            </label>
+            <label>
+              <span>Abre</span>
+              <input
+                type="time"
+                value={day.opensAt}
+                disabled={!day.isOpen}
+                onChange={(event) => onChange(updateBusinessHoursDay(value, day.weekday, { opensAt: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Fecha</span>
+              <input
+                type="time"
+                value={day.closesAt}
+                disabled={!day.isOpen}
+                onChange={(event) => onChange(updateBusinessHoursDay(value, day.weekday, { closesAt: event.target.value }))}
+              />
+            </label>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function LocationHelp({ issue }: { issue: string }) {

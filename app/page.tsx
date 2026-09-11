@@ -43,6 +43,9 @@ type FulfillmentMode = "delivery" | "pickup";
 type DeliveryFeeType = "fixed" | "per_km";
 type OrderChannel = "whatsapp" | "internal";
 type OrderMode = OrderChannel | "both";
+type BusinessHoursDay = { weekday: number; isOpen: boolean; opensAt: string; closesAt: string };
+type BusinessHoursConfig = { days: BusinessHoursDay[] };
+type BusinessHoursStatus = { isConfigured: boolean; isOpen: boolean; label: string };
 export type InternalOrderContext = {
   source: "staff" | "table_device";
   storeId: string;
@@ -100,6 +103,7 @@ type Merchant = {
   calculatesDeliveryFee: boolean;
   catalogLayout: CatalogLayout;
   compactInternalCatalog: boolean;
+  businessHours: BusinessHoursConfig | null;
   whatsapp: string;
   address: string;
   latitude: number | null;
@@ -155,6 +159,7 @@ const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
 const ADDITIONS_PARAMETER_KEY = "enable_additions";
 const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
+const BUSINESS_HOURS_PARAMETER_KEY = "business_hours";
 const PUBLIC_CATALOG_PARAMETER_KEYS = [
   FREIGHT_PARAMETER_KEY,
   DELIVERY_FEE_TYPE_PARAMETER_KEY,
@@ -162,7 +167,20 @@ const PUBLIC_CATALOG_PARAMETER_KEYS = [
   ADDITIONS_PARAMETER_KEY,
   ORDER_MODE_PARAMETER_KEY,
   INTERNAL_CATALOG_COMPACT_PARAMETER_KEY,
+  BUSINESS_HOURS_PARAMETER_KEY,
 ];
+
+const BUSINESS_WEEKDAYS = [
+  { value: 0, short: "Dom", label: "Domingo" },
+  { value: 1, short: "Seg", label: "Segunda" },
+  { value: 2, short: "Ter", label: "Terça" },
+  { value: 3, short: "Qua", label: "Quarta" },
+  { value: 4, short: "Qui", label: "Quinta" },
+  { value: 5, short: "Sex", label: "Sexta" },
+  { value: 6, short: "Sáb", label: "Sábado" },
+];
+const BUSINESS_WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const BUSINESS_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -201,6 +219,80 @@ function orderChannelAvailable(mode: OrderMode | undefined, channel: OrderChanne
   return resolvedMode === "both" || resolvedMode === channel;
 }
 
+function businessTimeValue(value: unknown, fallback: string) {
+  return typeof value === "string" && BUSINESS_TIME_PATTERN.test(value) ? value : fallback;
+}
+
+function businessHoursValue(value: unknown): BusinessHoursConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as { days?: unknown };
+  if (!Array.isArray(source.days)) return null;
+
+  const parsedDays = new Map<number, BusinessHoursDay>();
+  for (const item of source.days) {
+    if (!item || typeof item !== "object") continue;
+    const day = item as Partial<BusinessHoursDay>;
+    const weekday = Number(day.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) continue;
+    parsedDays.set(weekday, {
+      weekday,
+      isOpen: Boolean(day.isOpen),
+      opensAt: businessTimeValue(day.opensAt, "08:00"),
+      closesAt: businessTimeValue(day.closesAt, "18:00"),
+    });
+  }
+
+  if (!parsedDays.size) return null;
+  return {
+    days: BUSINESS_WEEKDAY_ORDER.map((weekday) => parsedDays.get(weekday) ?? {
+      weekday,
+      isOpen: false,
+      opensAt: "08:00",
+      closesAt: "18:00",
+    }),
+  };
+}
+
+function businessTimeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function isCurrentBusinessDayOpen(day: BusinessHoursDay, currentMinutes: number) {
+  if (!day.isOpen) return false;
+  const opensAt = businessTimeToMinutes(day.opensAt);
+  const closesAt = businessTimeToMinutes(day.closesAt);
+  if (opensAt === closesAt) return true;
+  return opensAt < closesAt
+    ? currentMinutes >= opensAt && currentMinutes < closesAt
+    : currentMinutes >= opensAt || currentMinutes < closesAt;
+}
+
+function businessHoursStatus(config: BusinessHoursConfig | null, now = new Date()): BusinessHoursStatus {
+  if (!config?.days.length) return { isConfigured: false, isOpen: true, label: "Horário não informado" };
+  const currentDay = config.days.find((day) => day.weekday === now.getDay());
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const isOpen = currentDay ? isCurrentBusinessDayOpen(currentDay, currentMinutes) : false;
+  return {
+    isConfigured: true,
+    isOpen,
+    label: isOpen ? "Aberto agora" : "Fechado agora",
+  };
+}
+
+function merchantIsClosed(merchant: Merchant) {
+  const status = businessHoursStatus(merchant.businessHours);
+  return status.isConfigured && !status.isOpen;
+}
+
+function businessWeekdayLabel(weekday: number) {
+  return BUSINESS_WEEKDAYS.find((day) => day.value === weekday)?.label ?? "Dia";
+}
+
+function businessHourText(day: BusinessHoursDay) {
+  return day.isOpen ? `${day.opensAt} às ${day.closesAt}` : "Fechado";
+}
+
 function requestCurrentPosition(options: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
 }
@@ -230,6 +322,7 @@ function categorySectionId(storeId: StoreId, category: string) {
 
 function normalizeWhatsapp(value: string) {
   const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
 
@@ -289,6 +382,7 @@ const fallbackMerchants: Merchant[] = [
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     compactInternalCatalog: true,
+    businessHours: null,
     whatsapp: "5599999990001",
     address: "Av. Central, 320",
     latitude: -7.1908,
@@ -364,6 +458,7 @@ const fallbackMerchants: Merchant[] = [
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     compactInternalCatalog: true,
+    businessHours: null,
     whatsapp: "5599999990002",
     address: "Rua das Flores, 88",
     latitude: -7.1842,
@@ -440,6 +535,7 @@ const fallbackMerchants: Merchant[] = [
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     compactInternalCatalog: true,
+    businessHours: null,
     whatsapp: "5599999990003",
     address: "Av. Filadelfia, 1280 - Setor Industrial",
     latitude: -7.2056,
@@ -637,6 +733,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     compactInternalCatalog: true,
+    businessHours: null,
     whatsapp: "",
     address: "Endereço não informado",
     latitude: store.latitude == null ? null : Number(store.latitude),
@@ -971,6 +1068,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const [validatingManualLocation, setValidatingManualLocation] = useState(false);
   const [showAllStores, setShowAllStores] = useState(false);
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
+  const [businessClock, setBusinessClock] = useState(0);
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const internalContextKey = internalOrderContext ? `${internalOrderContext.source}-${internalOrderContext.tableId ?? internalOrderContext.storeId}` : "default";
@@ -1006,6 +1104,11 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     });
 
     return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setBusinessClock((current) => current + 1), 60000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -1114,6 +1217,12 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
           .filter((row) => row.parameter_key === INTERNAL_CATALOG_COMPACT_PARAMETER_KEY)
           .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
       );
+      const storeBusinessHoursParameters = new Map<string, BusinessHoursConfig>();
+      for (const row of storeParameterResult.data ?? []) {
+        if (row.parameter_key !== BUSINESS_HOURS_PARAMETER_KEY) continue;
+        const value = businessHoursValue(row.parameter_value);
+        if (value) storeBusinessHoursParameters.set(row.store_id, value);
+      }
       const companyNames = new Map<string, { name: string; themeColor: string; profileImage: string | null }>(
         ((companyResult.data ?? []) as PublicCompanyIdentity[]).map((row) => [row.tenant_id, {
           name: row.company_name,
@@ -1216,6 +1325,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             compactInternalCatalog: storeCompactInternalCatalogParameters.has(store.id)
               ? storeCompactInternalCatalogParameters.get(store.id)!
               : tenantCompactInternalCatalogParameters.get(store.tenant_id) ?? true,
+            businessHours: storeBusinessHoursParameters.get(store.id) ?? null,
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
             coverNote: typeof store.cover_note === "string" ? store.cover_note.trim() : "",
@@ -1421,7 +1531,11 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
 
   const cartMerchant = useMemo(
     () => merchants.find((store) => store.id === cart[0]?.merchantId),
-    [cart],
+    [cart, merchants],
+  );
+  const cartStoreClosed = useMemo(
+    () => merchantIsClosed(cartMerchant ?? merchant),
+    [businessClock, cartMerchant, merchant],
   );
 
   const totals = useMemo(() => {
@@ -1796,6 +1910,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
 
   function sendOrder() {
     const targetMerchant = cartMerchant ?? merchant;
+    if (merchantIsClosed(targetMerchant)) {
+      setCheckoutError("Esta filial está fechada no momento.");
+      return;
+    }
     if (!orderChannelAvailable(targetMerchant.orderMode, orderChannel)) {
       setCheckoutError(orderChannel === "internal"
         ? "As comandas internas não estão habilitadas para esta filial."
@@ -2027,6 +2145,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             orderChannel={orderChannel}
             internalOrderContext={internalOrderContext}
             isCartOpen={isCartOpen}
+            storeClosed={cartStoreClosed}
             totals={totals}
             checkoutError={checkoutError}
             onCheckoutChange={(nextCheckout) => {
@@ -2302,9 +2421,12 @@ function merchantMapUrl(merchant: Merchant) {
 }
 
 function MerchantHero({ merchant, compact = false }: { merchant: Merchant; compact?: boolean }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const branchName = merchantBranchLabel(merchant);
   const mapUrl = merchantMapUrl(merchant);
   const locationUrl = hasCoordinates(merchant) ? mapsUrl(merchant) : null;
+  const hoursStatus = businessHoursStatus(merchant.businessHours);
+  const whatsappHref = merchant.whatsapp ? `https://wa.me/${merchant.whatsapp}` : null;
 
   return (
     <section className={compact ? "merchant-presentation compact-internal" : "merchant-presentation"} style={{ "--merchant-color": merchant.palette } as CSSProperties}>
@@ -2319,13 +2441,46 @@ function MerchantHero({ merchant, compact = false }: { merchant: Merchant; compa
             <Store size={30} />
           )}
         </span>
+        {!compact && hoursStatus.isConfigured && !hoursStatus.isOpen ? <span className="merchant-closed-badge">Fechado</span> : null}
         {!compact ? <div className="merchant-info-content">
           <div className="merchant-info-heading">
             <div>
-              <h1>{merchant.companyName}</h1>
+              <div className="merchant-title-line">
+                <h1>{merchant.companyName}</h1>
+                <button
+                  className="merchant-details-toggle"
+                  type="button"
+                  aria-expanded={detailsOpen}
+                  aria-label={detailsOpen ? "Ocultar detalhes da filial" : "Ver detalhes da filial"}
+                  onClick={() => setDetailsOpen((current) => !current)}
+                >
+                  <ChevronRight size={19} />
+                </button>
+              </div>
               {branchName ? <p className="merchant-branch-name">{branchName}</p> : null}
             </div>
           </div>
+          {detailsOpen ? (
+            <div className="merchant-details-panel">
+              <div className="merchant-detail-row">
+                <span>WhatsApp</span>
+                {whatsappHref ? <a href={whatsappHref} target="_blank" rel="noopener noreferrer">{formatWhatsapp(merchant.whatsapp)}</a> : <strong>Não informado</strong>}
+              </div>
+              <div className="merchant-detail-row merchant-hours-row">
+                <span>Horário</span>
+                {merchant.businessHours ? (
+                  <ul className="merchant-hours-list">
+                    {merchant.businessHours.days.map((day) => (
+                      <li key={day.weekday}>
+                        <span>{businessWeekdayLabel(day.weekday)}</span>
+                        <strong>{businessHourText(day)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <strong>Não informado</strong>}
+              </div>
+            </div>
+          ) : null}
           <div className="merchant-location-map">
             {mapUrl ? (
               <iframe
@@ -2363,6 +2518,7 @@ function CartPanel({
   orderChannel,
   internalOrderContext,
   isCartOpen,
+  storeClosed,
   totals,
   onCheckoutChange,
   onClose,
@@ -2385,6 +2541,7 @@ function CartPanel({
   orderChannel: OrderChannel;
   internalOrderContext?: InternalOrderContext;
   isCartOpen: boolean;
+  storeClosed: boolean;
   totals: OrderTotals;
   onCheckoutChange: (checkout: Checkout) => void;
   onClose: () => void;
@@ -2399,7 +2556,7 @@ function CartPanel({
   onValidateManualLocation: () => void;
 }) {
   const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
-  const disabled = cart.length === 0;
+  const disabled = cart.length === 0 || storeClosed;
   const cartBranchName = merchantBranchLabel(cartMerchant);
   const deliveryFeeLabel = fulfillment === "delivery" && totals.deliveryFeePending
     ? cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km"
@@ -2675,9 +2832,9 @@ function CartPanel({
         </span>
       </div>
 
-          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? onSendOrder : goToCheckout}>
-            {showCheckoutDetails ? orderChannel === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
-            {showCheckoutDetails ? orderChannel === "internal" ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Enviar pelo WhatsApp" : "Continuar"}
+          <button className={storeClosed ? "whatsapp-button disabled-by-hours" : "whatsapp-button"} disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? onSendOrder : goToCheckout}>
+            {storeClosed ? <Clock size={19} /> : showCheckoutDetails ? orderChannel === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
+            {storeClosed ? "Estabelecimento fechado" : showCheckoutDetails ? orderChannel === "internal" ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Enviar pelo WhatsApp" : "Continuar"}
           </button>
       </div>
     </aside>
