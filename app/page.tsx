@@ -2511,20 +2511,20 @@ function LandingPage() {
           <LiistBrand context="Commerce" />
         </a>
         <nav aria-label="Navegação da página inicial">
-          <a href="#produto">Produto</a>
-          <a href="#acesso">Acessos</a>
+          <a href="#solucoes">Soluções</a>
+          <a href="#acesso">Entrar</a>
           <a href="#contato">Contato</a>
         </nav>
-        <a className="landing-topbar-action" href={contactUrl} target="_blank" rel="noopener noreferrer">Entre em contato</a>
+        <a className="landing-topbar-action" href={contactUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
       </header>
 
       <section className="landing-hero">
         <div className="landing-hero-copy">
-          <span className="landing-kicker">Catálogo, pedido e comanda</span>
-          <h1>Venda por link. Controle no balcão.</h1>
+          <span className="landing-kicker">WhatsApp e comanda interna</span>
+          <h1>Venda por WhatsApp. Lance comandas no salão.</h1>
           <p>
-            O LIIST organiza catálogos digitais para lojas e restaurantes, com pedido por WhatsApp,
-            comanda interna, mesas, cozinha, caixa e importação por planilha.
+            O LIIST cria o catálogo digital da filial para o cliente pedir de casa pelo WhatsApp
+            ou para a equipe lançar pedidos por mesa, tablet, cozinha e caixa.
           </p>
           <div className="landing-actions">
             <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
@@ -2533,11 +2533,18 @@ function LandingPage() {
             </a>
             <a className="landing-secondary" href="/acesso">Acessar plataforma</a>
           </div>
-          <dl className="landing-metrics" aria-label="Resumo do produto">
-            <div><dt>2</dt><dd>formas de pedido</dd></div>
-            <div><dt>4</dt><dd>áreas de acesso</dd></div>
-            <div><dt>1</dt><dd>link por filial</dd></div>
-          </dl>
+          <div className="landing-mode-cards" aria-label="Formas de pedido">
+            <article>
+              <span><MessageCircle size={16} /> Pedido por WhatsApp</span>
+              <h2>Link da loja, carrinho e mensagem pronta.</h2>
+              <p>O cliente escolhe os produtos, informa a entrega e envia a comanda organizada para o WhatsApp da filial.</p>
+            </article>
+            <article>
+              <span><ClipboardList size={16} /> Comanda interna</span>
+              <h2>Tablet ou garçom lançando direto no sistema.</h2>
+              <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
+            </article>
+          </div>
         </div>
 
         <div className="landing-product-frame" aria-label="Prévia do fluxo de pedidos">
@@ -2563,7 +2570,7 @@ function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-section landing-split" id="produto">
+      <section className="landing-section landing-split" id="solucoes">
         <div>
           <span className="landing-kicker">Como funciona</span>
           <h2>Um sistema para vender fora e atender dentro da loja.</h2>
@@ -2591,9 +2598,9 @@ function LandingPage() {
 
       <section className="landing-section landing-access" id="acesso">
         <div className="landing-section-heading">
-          <span className="landing-kicker">Acesse por aqui</span>
-          <h2>Entradas separadas para cada perfil.</h2>
-          <p>Administrador, proprietário, filial e operação entram pelo painel correto, sem misturar permissões.</p>
+          <span className="landing-kicker">Entrar na plataforma</span>
+          <h2>Acessos separados para cada perfil.</h2>
+          <p>Use esta área apenas para entrar no painel correto: administrador, empresa, filial ou operação.</p>
         </div>
         <div className="landing-access-grid">
           {accessLinks.map((item) => (
