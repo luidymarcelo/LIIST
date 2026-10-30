@@ -33,8 +33,10 @@ import {
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LiistBrand } from "../components/liist-brand";
+import { catalogThemeStyle, normalizeThemeColor } from "../lib/catalog-theme";
 import { supabase } from "../lib/supabase";
 
 type StoreId = string;
@@ -164,6 +166,8 @@ const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const INTERNAL_CATALOG_COMPACT_PARAMETER_KEY = "compact_internal_catalog";
 const BUSINESS_HOURS_PARAMETER_KEY = "business_hours";
 const LIIST_CONTACT_WHATSAPP = "5547997295163";
+// Visitantes não leem stores.cnpj (pode ser CPF); public_document traz só o CNPJ.
+const PUBLIC_STORE_COLUMNS = "id, tenant_id, name, slug, segment, whatsapp_phone, address, minimum_order, delivery_fee, delivery_time_label, is_active, created_at, cover_image_url, latitude, longitude, cover_note, cover_note_position, pickup_time_label, show_minimum_order, show_delivery_time, show_pickup_time, cnpj:public_document";
 const PUBLIC_CATALOG_PARAMETER_KEYS = [
   FREIGHT_PARAMETER_KEY,
   DELIVERY_FEE_TYPE_PARAMETER_KEY,
@@ -360,7 +364,8 @@ function categorySectionId(storeId: StoreId, category: string) {
 }
 
 function normalizeWhatsapp(value: string) {
-  const digits = value.replace(/\D/g, "");
+  // Zeros à esquerda (o "0" de discagem antes do DDD) quebram o link wa.me.
+  const digits = value.replace(/\D/g, "").replace(/^0+/, "");
   if (!digits) return "";
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
@@ -371,36 +376,6 @@ function merchantBranchLabel(merchant: Merchant) {
   return companyName.localeCompare(branchName, "pt-BR", { sensitivity: "base" }) === 0
     ? null
     : branchName;
-}
-
-function normalizeThemeColor(value: unknown) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#111513";
-}
-
-function mixHexColor(color: string, target: "#000000" | "#ffffff", amount: number) {
-  const source = normalizeThemeColor(color).slice(1);
-  const targetHex = target.slice(1);
-  const channel = (offset: number) => Math.round(
-    Number.parseInt(source.slice(offset, offset + 2), 16) * (1 - amount)
-      + Number.parseInt(targetHex.slice(offset, offset + 2), 16) * amount,
-  ).toString(16).padStart(2, "0");
-  return `#${channel(0)}${channel(2)}${channel(4)}`;
-}
-
-function themeContrast(color: string) {
-  const hex = normalizeThemeColor(color).slice(1);
-  const [red, green, blue] = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
-  return (red * 299 + green * 587 + blue * 114) / 1000 > 160 ? "#111513" : "#ffffff";
-}
-
-function catalogThemeStyle(color: string): CSSProperties {
-  const primary = normalizeThemeColor(color);
-  return {
-    "--primary": primary,
-    "--primary-dark": mixHexColor(primary, "#000000", 0.24),
-    "--primary-soft": mixHexColor(primary, "#ffffff", 0.88),
-    "--primary-contrast": themeContrast(primary),
-  } as CSSProperties;
 }
 
 const fallbackMerchants: Merchant[] = [
@@ -1180,7 +1155,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         const [storeResult, tenantParameterResult, storeParameterResult, companyResult, optionGroupResult] = await Promise.all([
           supabase
             .from("stores")
-            .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
+            .select(`${PUBLIC_STORE_COLUMNS}, categories(*), products(*, product_images(id, image_url, sort_order))`)
             .eq("is_active", true)
             .order("created_at", { ascending: true }),
           supabase
@@ -1199,10 +1174,20 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
             .order("sort_order", { ascending: true }),
         ]);
         let { data, error } = storeResult;
+        if (error && /public_document/i.test(error.message)) {
+          // Banco ainda sem a migration 029: mantém a leitura antiga.
+          const legacyStoreResult = await supabase
+            .from("stores")
+            .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
+            .eq("is_active", true)
+            .order("created_at", { ascending: true });
+          data = legacyStoreResult.data;
+          error = legacyStoreResult.error;
+        }
         if (error && /product_images|relationship|schema cache/i.test(error.message)) {
           const fallbackStoreResult = await supabase
             .from("stores")
-            .select("*, categories(*), products(*)")
+            .select(`${PUBLIC_STORE_COLUMNS}, categories(*), products(*)`)
             .eq("is_active", true)
             .order("created_at", { ascending: true });
           data = fallbackStoreResult.data;
@@ -2093,10 +2078,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
       {view === "catalog" ? (
         catalogLoading ? (
           <CatalogLoadingSkeleton directStore={Boolean(directStoreId)} />
-        ) : !merchants.length ? (
-          <EmptyCatalog />
         ) : directStoreId && !merchants.some((store) => merchantMatchesLookup(store, directStoreId)) ? (
           <StoreNotFound orderChannel={orderChannel} />
+        ) : !merchants.length ? (
+          <EmptyCatalog />
         ) : directStoreId && displayMerchant && !orderChannelAvailable(displayMerchant.orderMode, orderChannel) ? (
           <OrderChannelUnavailable orderChannel={orderChannel} />
         ) : (
@@ -2189,6 +2174,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
                               ) : (
                                 <button
                                   className="add-button"
+                                  aria-label={`Adicionar ${product.name}`}
                                   onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
                                 >
                                   <Plus size={18} />
@@ -2495,156 +2481,158 @@ function SkeletonBlock({ className = "" }: { className?: string }) {
   return <span className={`skeleton-block ${className}`} aria-hidden="true" />;
 }
 
+type LandingDemoItem = { id: string; name: string; note: string; price: number };
+type LandingDemoView = "whatsapp" | "kitchen";
+
+const LANDING_DEMO_ITEMS: LandingDemoItem[] = [
+  { id: "smash", name: "Smash duplo", note: "Pão brioche, cheddar, cebola caramelizada", price: 29.9 },
+  { id: "frango", name: "Crispy de frango", note: "Maionese da casa, alface, picles", price: 27.5 },
+  { id: "batata", name: "Batata rústica", note: "Porção individual com páprica", price: 14 },
+  { id: "limonada", name: "Limonada suíça", note: "500 ml", price: 11 },
+];
+
+const LANDING_DEMO_INITIAL: Record<string, number> = { smash: 2, batata: 1 };
+
 function LandingPage() {
   const contactUrl = `https://wa.me/${LIIST_CONTACT_WHATSAPP}?text=${encodeURIComponent("Olá, quero conhecer o LIIST Commerce.")}`;
-  const accessLinks = [
-    { title: "Central administrativa", description: "Criação de empresas, filiais, acessos e parâmetros.", href: "/admin" },
-    { title: "Portal da empresa", description: "Catálogo, produtos, categorias, adicionais e identidade da marca.", href: "/empresa" },
-    { title: "Painel da filial", description: "Gestão limitada por CNPJ para quem cuida de uma unidade.", href: "/filial" },
-    { title: "Operação", description: "Atendimento, cozinha, caixa, mesas e comandas internas.", href: "/operacao" },
-  ];
 
   return (
-    <main className="landing-page">
-      <header className="landing-topbar">
-        <a className="landing-brand" href="/" aria-label="LIIST Commerce">
-          <LiistBrand context="Commerce" />
-        </a>
+    <main className="home">
+      <header className="home-topbar">
+        <Link className="home-brand" href="/" aria-label="LIIST Commerce">
+          <LiistBrand />
+        </Link>
         <nav aria-label="Navegação da página inicial">
-          <a href="#solucoes">Soluções</a>
-          <a href="#acesso">Entrar</a>
-          <a href="#contato">Contato</a>
+          <a href="#como-funciona">Como funciona</a>
+          <Link className="home-login" href="/acesso">Entrar</Link>
         </nav>
-        <a className="landing-topbar-action" href={contactUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp</a>
       </header>
 
-      <section className="landing-hero">
-        <div className="landing-hero-copy">
-          <span className="landing-kicker">LIIST Commerce</span>
-          <h1>Pedido por WhatsApp e comanda interna, sem bagunça.</h1>
-          <p>
-            Para lojas e restaurantes que precisam vender por link, organizar produtos e controlar
-            salão, cozinha e caixa quando houver atendimento interno.
-          </p>
-          <div className="landing-actions">
-            <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
-              Falar com a LIIST
-              <ChevronRight size={18} />
-            </a>
-            <a className="landing-secondary" href="/acesso">Acessar plataforma</a>
-          </div>
+      <section className="home-hero">
+        <div className="home-hero-copy">
+          <h1>O cliente escolhe no celular. A loja recebe o pedido pronto.</h1>
+          <p>Cardápio por link para vender no WhatsApp e lançar comandas no salão. Sem áudio, sem print de cardápio, sem anotar errado.</p>
+          <Link className="home-cta" href="/cadastro">
+            Quero na minha loja <ChevronRight size={18} />
+          </Link>
+          <small className="home-hint">Experimente: monte um pedido no celular de exemplo.</small>
         </div>
+        <LandingDemo />
+      </section>
 
-        <div className="landing-product-frame" aria-label="Prévia do fluxo de pedidos">
-          <div className="landing-phone-preview">
-            <div className="landing-phone-bar"><span>LIIST</span><small>Loja aberta</small></div>
-            <div className="landing-store-card">
-              <span className="landing-store-avatar"><img src="/liist-logo.svg" alt="" /></span>
-              <div><strong>Luizburger</strong><small>Centro</small></div>
-            </div>
-            <div className="landing-menu-row"><span>Combo artesanal</span><strong>R$ 32,90</strong></div>
-            <div className="landing-menu-row"><span>Batata individual</span><strong>R$ 11,00</strong></div>
-            <div className="landing-phone-button">Continuar pedido</div>
-          </div>
-          <div className="landing-order-preview">
-            <header><span>Comanda #184</span><strong>Mesa 06</strong></header>
-            <ul>
-              <li><span>2x Combo artesanal</span><small>+ queijo, + bacon</small></li>
-              <li><span>1x Refrigerante lata</span><small>Sem gelo</small></li>
-              <li><span>Total</span><strong>R$ 77,80</strong></li>
-            </ul>
-            <footer><span>Cozinha</span><span>Caixa</span><span>WhatsApp</span></footer>
-          </div>
-        </div>
-
-        <div className="landing-mode-cards" aria-label="Formas de atendimento">
-          <div className="landing-mode-heading">
-            <span>Formas de atendimento</span>
-            <p>Dois caminhos para a filial trabalhar: venda pelo WhatsApp ou pedido interno no salão.</p>
-          </div>
-          <div className="landing-mode-options">
-            <article>
-              <span className="landing-mode-label">Pedido por WhatsApp</span>
-              <h2>O cliente compra pelo link da filial.</h2>
-              <p>Ele escolhe os itens, confirma a entrega e envia a comanda pronta para o WhatsApp da loja.</p>
-              <div className="landing-mode-divider" />
-              <div className="landing-mode-flow" aria-label="Como funciona no WhatsApp">
-                <strong>Como funciona</strong>
-                <span>Link enviado</span><i /><span>Carrinho</span><i /><span>Mensagem pronta</span>
-              </div>
-            </article>
-            <article>
-              <span className="landing-mode-label">Comanda interna</span>
-              <h2>Tablet ou garçom lançando no salão.</h2>
-              <p>O pedido entra na operação, a cozinha acompanha o preparo e o caixa fecha a conta da mesa.</p>
-              <div className="landing-mode-divider" />
-              <div className="landing-mode-flow" aria-label="Como funciona na comanda interna">
-                <strong>Como funciona</strong>
-                <span>Mesa ou garçom</span><i /><span>Cozinha</span><i /><span>Caixa</span>
-              </div>
-            </article>
-          </div>
+      <section className="home-modes" id="como-funciona">
+        <h2>Dois jeitos de usar, o mesmo cardápio</h2>
+        <div className="home-modes-grid">
+          <article>
+            <h3><MessageCircle size={18} /> Venda pelo WhatsApp</h3>
+            <ol>
+              <li>Você divulga o link da loja.</li>
+              <li>O cliente monta o carrinho e informa a entrega.</li>
+              <li>A mensagem chega no seu WhatsApp, já organizada.</li>
+            </ol>
+          </article>
+          <article>
+            <h3><ClipboardList size={18} /> Comanda no salão</h3>
+            <ol>
+              <li>O garçom ou o tablet da mesa lança o pedido.</li>
+              <li>A cozinha vê o que preparar e marca o que saiu.</li>
+              <li>O caixa fecha a conta e libera a mesa.</li>
+            </ol>
+          </article>
         </div>
       </section>
 
-      <section className="landing-section landing-split" id="solucoes">
+      <section className="home-closing">
+        <h2>Quer ver com o seu cardápio?</h2>
+        <p>Mande seus produtos e montamos uma loja de teste para você mostrar à equipe.</p>
         <div>
-          <span className="landing-kicker">Como funciona</span>
-          <h2>Um sistema para vender fora e atender dentro da loja.</h2>
-        </div>
-        <div className="landing-flow-list">
-          <article><strong>Catálogo por filial</strong><p>Cada filial tem CNPJ, link próprio, identidade, capa, perfil, produtos, categorias e adicionais.</p></article>
-          <article><strong>Pedido por WhatsApp</strong><p>O cliente recebe o link, monta o carrinho e envia uma comanda organizada para o número da loja.</p></article>
-          <article><strong>Comanda interna</strong><p>A equipe usa o mesmo cardápio para lançar pedidos em mesa, cozinha acompanha e caixa fecha a conta.</p></article>
-          <article><strong>Cadastro rápido</strong><p>Produtos, categorias, adicionais e unidades podem ser mantidos pelo painel ou importados por planilha.</p></article>
+          <a className="home-cta" href={contactUrl} target="_blank" rel="noopener noreferrer">Falar no WhatsApp <MessageCircle size={18} /></a>
+          <Link className="home-link" href="/cadastro">Pedir acesso agora</Link>
+          <Link className="home-link" href="/?vitrines=1">Ver lojas que já usam</Link>
         </div>
       </section>
 
-      <section className="landing-section landing-audience">
-        <article>
-          <span>Restaurantes</span>
-          <h2>Mesa, atendimento, cozinha e caixa no mesmo fluxo.</h2>
-          <p>Ideal para hamburguerias, pizzarias, lanchonetes e operações pequenas que precisam começar simples e crescer sem trocar de sistema.</p>
-        </article>
-        <article>
-          <span>Lojas</span>
-          <h2>Vitrine digital com pedido pronto para conversar.</h2>
-          <p>Funciona para farmácias, materiais de construção, lojas físicas e qualquer negócio que vende por atendimento direto.</p>
-        </article>
-      </section>
-
-      <section className="landing-section landing-access" id="acesso">
-        <div className="landing-section-heading">
-          <span className="landing-kicker">Entrar na plataforma</span>
-          <h2>Acessos separados para cada perfil.</h2>
-          <p>Use esta área apenas para entrar no painel correto: administrador, empresa, filial ou operação.</p>
-        </div>
-        <div className="landing-access-grid">
-          {accessLinks.map((item) => (
-            <a className="landing-access-card" href={item.href} key={item.href}>
-              <span>{item.title}</span>
-              <p>{item.description}</p>
-              <ChevronRight size={18} />
-            </a>
-          ))}
-        </div>
-      </section>
-
-      <section className="landing-section landing-contact" id="contato">
-        <div>
-          <span className="landing-kicker">Começar agora</span>
-          <h2>Monte sua primeira loja com a LIIST.</h2>
-          <p>Entre em contato para cadastrar a empresa, configurar filial, usuários, catálogo e o modo de pedido ideal.</p>
-        </div>
-        <div>
-          <a className="landing-primary" href={contactUrl} target="_blank" rel="noopener noreferrer">
-            Chamar no WhatsApp
-            <MessageCircle size={18} />
-          </a>
-          <a className="landing-secondary" href="/?vitrines=1">Ver vitrines cadastradas</a>
-        </div>
-      </section>
+      <footer className="home-footer">
+        <span>LIIST Commerce</span>
+        <Link href="/acesso">Entrar na plataforma</Link>
+      </footer>
     </main>
+  );
+}
+
+function LandingDemo() {
+  const [quantities, setQuantities] = useState<Record<string, number>>(LANDING_DEMO_INITIAL);
+  const [view, setView] = useState<LandingDemoView>("whatsapp");
+  const lines = LANDING_DEMO_ITEMS
+    .filter((item) => (quantities[item.id] ?? 0) > 0)
+    .map((item) => ({ ...item, quantity: quantities[item.id] }));
+  const total = lines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+  const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
+
+  function changeQuantity(itemId: string, delta: number) {
+    setQuantities((current) => ({ ...current, [itemId]: Math.max(0, (current[itemId] ?? 0) + delta) }));
+  }
+
+  return (
+    <div className="home-demo">
+      <div className="home-phone" aria-label="Exemplo de cardápio">
+        <div className="home-phone-store">
+          <strong>Brasa Burger</strong>
+          <small>Aberto até 23h · Centro</small>
+        </div>
+        <ul className="home-phone-menu">
+          {LANDING_DEMO_ITEMS.map((item) => {
+            const quantity = quantities[item.id] ?? 0;
+            return (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <small>{item.note}</small>
+                  <span>{formatPrice(item.price)}</span>
+                </div>
+                <div className="home-stepper">
+                  {quantity > 0 ? <button type="button" aria-label={`Remover ${item.name}`} onClick={() => changeQuantity(item.id, -1)}><Minus size={14} /></button> : null}
+                  {quantity > 0 ? <b aria-live="polite">{quantity}</b> : null}
+                  <button type="button" aria-label={`Adicionar ${item.name}`} onClick={() => changeQuantity(item.id, 1)}><Plus size={14} /></button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="home-phone-cart">
+          <span>{itemCount} {itemCount === 1 ? "item" : "itens"}</span>
+          <strong>{formatPrice(total)}</strong>
+        </div>
+      </div>
+
+      <div className="home-receiver">
+        <div className="home-receiver-tabs" role="tablist" aria-label="O que a loja recebe">
+          <button type="button" role="tab" aria-selected={view === "whatsapp"} className={view === "whatsapp" ? "active" : ""} onClick={() => setView("whatsapp")}>No WhatsApp</button>
+          <button type="button" role="tab" aria-selected={view === "kitchen"} className={view === "kitchen" ? "active" : ""} onClick={() => setView("kitchen")}>Na cozinha</button>
+        </div>
+        {view === "whatsapp" ? (
+          <div className="home-whatsapp" role="tabpanel">
+            <div className="home-bubble">
+              <strong>Pedido #184 · Brasa Burger</strong>
+              {lines.length ? lines.map((line) => <span key={line.id}>{line.quantity}x {line.name} — {formatPrice(line.price * line.quantity)}</span>) : <span className="home-empty">Adicione itens no cardápio.</span>}
+              <span>Entrega: Rua das Flores, 120</span>
+              <strong>Total: {formatPrice(total)}</strong>
+              <small>20:41 ✓✓</small>
+            </div>
+          </div>
+        ) : (
+          <div className="home-ticket" role="tabpanel">
+            <header><strong>Mesa 06</strong><span>Comanda #184</span></header>
+            {lines.length ? (
+              <ul>
+                {lines.map((line) => <li key={line.id}><b>{line.quantity}x</b> {line.name}</li>)}
+              </ul>
+            ) : <p className="home-empty">Adicione itens no cardápio.</p>}
+            <footer><span className="home-ticket-status">Em preparo</span><span>há 1 min</span></footer>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2661,13 +2649,19 @@ function EmptyCatalog() {
   );
 }
 
+// Link direto de uma loja que não está no ar (suspensa, teste vencido ou endereço antigo).
+// O link circula no WhatsApp dos clientes da loja: mensagem neutra, sem culpar ninguém e sem mandar o cliente para outras lojas.
 function StoreNotFound({ orderChannel }: { orderChannel: OrderChannel }) {
   return (
     <section className="empty-catalog" aria-live="polite">
       <Store size={30} />
-      <h1>Loja não encontrada</h1>
-      <p>Este catálogo não está disponível ou o endereço informado está incorreto.</p>
-      <a className="primary-button" href={orderChannel === "internal" ? "/comanda" : "/"}>Ver catálogos disponíveis</a>
+      <h1>Catálogo temporariamente indisponível</h1>
+      <p>Este catálogo não está recebendo pedidos no momento. Tente novamente mais tarde ou fale direto com a loja.</p>
+      {orderChannel === "internal" ? (
+        <a className="primary-button" href="/comanda">Voltar às comandas</a>
+      ) : (
+        <button className="primary-button" type="button" onClick={() => window.location.reload()}>Tentar novamente</button>
+      )}
     </section>
   );
 }

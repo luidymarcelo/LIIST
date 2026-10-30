@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { formatDocumentAuto } from "../../lib/branch-document";
 import { supabase } from "../../lib/supabase";
 
 export type CompanyPortalSection = "catalog" | "team" | "tables" | "settings";
@@ -88,15 +89,6 @@ const emptyUserForm = {
   branchIds: [] as string[],
   isActive: true,
 };
-
-function formatCnpj(value: string | null | undefined) {
-  const digits = String(value ?? "").replace(/\D/g, "").slice(0, 14);
-  return digits
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
-}
 
 function branchPublicIdentifier(branch: OperationsBranch) {
   const cnpj = branch.cnpj?.replace(/\D/g, "") ?? "";
@@ -326,7 +318,7 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
               <div className="admin-form-grid"><label>Nome<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label>WhatsApp opcional<input value={form.phone} onChange={(event) => setForm({ ...form, phone: formatPhone(event.target.value) })} inputMode="tel" /></label></div>
               <div className="admin-form-grid"><label>E-mail<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>{form.userId ? "Nova senha opcional" : "Senha inicial"}<input type="password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required={!form.userId} /></label></div>
               <fieldset className="operation-role-selector"><legend>Funções permitidas</legend><p>Selecione uma ou mais áreas para este mesmo login.</p><div>{selectableRoles.map((role) => <label className={form.roles.includes(role) ? "selected" : ""} key={role}><input type="checkbox" checked={form.roles.includes(role)} onChange={(event) => setForm((current) => ({ ...current, roles: event.target.checked ? orderedRoles([...current.roles, role]) : current.roles.filter((item) => item !== role) }))} /><span><strong>{roleLabels[role]}</strong><small>{roleDescriptions[role]}</small></span></label>)}</div></fieldset>
-              <fieldset className="operation-branch-selector"><legend>Filiais permitidas</legend>{branches.map((branch) => <label key={branch.id}><input type="checkbox" checked={form.branchIds.includes(branch.id)} onChange={(event) => setForm((current) => ({ ...current, branchIds: event.target.checked ? [...current.branchIds, branch.id] : current.branchIds.filter((id) => id !== branch.id) }))} /><span><strong>{branch.name}</strong><small>{formatCnpj(branch.cnpj) || "CNPJ não informado"}</small></span></label>)}</fieldset>
+              <fieldset className="operation-branch-selector"><legend>Filiais permitidas</legend>{branches.map((branch) => <label key={branch.id}><input type="checkbox" checked={form.branchIds.includes(branch.id)} onChange={(event) => setForm((current) => ({ ...current, branchIds: event.target.checked ? [...current.branchIds, branch.id] : current.branchIds.filter((id) => id !== branch.id) }))} /><span><strong>{branch.name}</strong><small>{formatDocumentAuto(branch.cnpj ?? "") || "Documento não informado"}</small></span></label>)}</fieldset>
               {form.userId ? <label className="operation-active-check"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /><span>Usuário ativo</span></label> : null}
               {feedback ? <p className="operation-feedback" role="alert">{feedback}</p> : null}
               <footer className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowEditor(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={saving}><ShieldCheck size={16} /> {saving ? "Salvando..." : "Salvar acesso"}</button></footer>
@@ -491,7 +483,7 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
   return (
     <section className="company-operation-page">
       <header className="company-operation-heading">
-        <div><span>Atendimento interno</span><h2>Mesas</h2><p>{branch.name} · {formatCnpj(branch.cnpj) || "CNPJ não informado"}</p></div>
+        <div><span>Atendimento interno</span><h2>Mesas</h2><p>{branch.name} · {formatDocumentAuto(branch.cnpj ?? "") || "Documento não informado"}</p></div>
         <label className="operation-branch-select"><span>Filial</span><select value={branch.id} onChange={(event) => onBranchChange(event.target.value)}>{branches.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
       </header>
 

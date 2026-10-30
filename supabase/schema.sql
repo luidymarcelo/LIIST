@@ -49,7 +49,7 @@ create table public.stores (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   name text not null,
   slug text not null,
-  cnpj text unique check (cnpj is null or cnpj ~ '^[0-9]{14}$'),
+  cnpj text unique check (cnpj is null or cnpj ~ '^([0-9]{11}|[0-9]{14})$'),
   segment store_segment not null default 'retail',
   whatsapp_phone text not null,
   address text,

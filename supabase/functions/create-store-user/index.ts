@@ -8,6 +8,7 @@ const corsHeaders = {
 type ManagedUser = { id: string; wasCreated: boolean };
 
 const companyUserRoles = ["branch_manager", "waiter", "cashier", "kitchen", "supervisor"] as const;
+const allowedSegments = new Set(["restaurant", "pharmacy", "construction", "retail", "services"]);
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -55,7 +56,7 @@ Deno.serve(async (request) => {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
-    if (!email || password.length < 6 || !name) throw new Error("Preencha nome, e-mail e uma senha com pelo menos 6 caracteres.");
+    if (!email || password.length < 8 || !name) throw new Error("Preencha nome, e-mail e uma senha com pelo menos 8 caracteres.");
 
     const managedUser = await ensureAuthUser(adminClient, email, password, name);
     const company = body.company;
@@ -66,11 +67,17 @@ Deno.serve(async (request) => {
     const branchName = String(company.branch_name ?? "").trim();
     const branchSlug = String(company.branch_slug ?? "").trim();
     const whatsappPhone = String(company.whatsapp_phone ?? "").replace(/\D/g, "");
-    const address = String(company.address ?? "").trim();
-    const latitude = Number(company.latitude);
-    const longitude = Number(company.longitude);
+    const city = String(company.city ?? "").trim();
+    // Mesma regra da aprovação de solicitação: sem endereço, a filial fica com a cidade até o dono confirmar no mapa.
+    const address = String(company.address ?? "").trim() || city;
+    const ownerPhone = String(company.owner_phone ?? whatsappPhone).replace(/\D/g, "");
+    const segment = allowedSegments.has(String(company.segment)) ? String(company.segment) : "retail";
+    const trialDays = company.trial_days == null || company.trial_days === "" ? null : Number(company.trial_days);
+    const hasLocation = company.latitude != null && company.latitude !== "" && company.longitude != null && company.longitude !== "";
+    const latitude = hasLocation ? Number(company.latitude) : null;
+    const longitude = hasLocation ? Number(company.longitude) : null;
     const coverNote = String(company.cover_note ?? "").trim();
-    const branchCnpj = normalizeCnpj(company.branch_cnpj);
+    const branchDocument = normalizeDocument(company.branch_cnpj);
     const allowedCoverNotePositions = new Set([
       "top-left", "top-center", "top-right",
       "center-left", "center", "center-right",
@@ -79,18 +86,26 @@ Deno.serve(async (request) => {
     const coverNotePosition = allowedCoverNotePositions.has(String(company.cover_note_position))
       ? String(company.cover_note_position)
       : "top-right";
-    const validLocation = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
-      && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
-    if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address || !validLocation || !isValidCnpj(branchCnpj)) {
+    const validLocation = latitude === null || longitude === null || (Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+      && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180);
+    const validTrial = trialDays === null || (Number.isInteger(trialDays) && trialDays >= 1 && trialDays <= 365);
+    if (!companyName || !companySlug || !branchName || !branchSlug || !/^\d{10,11}$/.test(whatsappPhone) || address.length < 2 || !validLocation || !validTrial || !isValidDocument(branchDocument)) {
       if (managedUser.wasCreated) await adminClient.auth.admin.deleteUser(managedUser.id);
-      throw new Error("Preencha todos os dados, um CNPJ válido e a localização da primeira filial.");
+      throw new Error("Preencha todos os dados, a cidade, um WhatsApp com DDD e um CPF ou CNPJ válido.");
     }
     if (coverNote.length > 160) throw new Error("A observação da capa deve ter no máximo 160 caracteres.");
 
     const { data: existingMembership } = await adminClient.from("tenant_members").select("tenant_id").eq("user_id", managedUser.id).in("role", ["manager", "staff"]).maybeSingle();
     if (existingMembership) throw new Error("Este e-mail já está vinculado a uma empresa.");
 
-    const { data: tenant, error: tenantError } = await adminClient.from("tenants").insert({ name: companyName, slug: companySlug }).select("id, name, slug").single();
+    const { data: tenant, error: tenantError } = await adminClient.from("tenants").insert({
+      name: companyName,
+      slug: companySlug,
+      owner_name: name,
+      owner_phone: ownerPhone || null,
+      approved_at: new Date().toISOString(),
+      trial_ends_at: trialDays === null ? null : new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString(),
+    }).select("id, name, slug").single();
     if (tenantError || !tenant) {
       if (managedUser.wasCreated) await adminClient.auth.admin.deleteUser(managedUser.id);
       throw new Error(tenantError?.message ?? "Não foi possível criar a empresa.");
@@ -116,13 +131,13 @@ Deno.serve(async (request) => {
         is_public: true,
       });
       if (parameterError) throw parameterError;
-      await adminClient.from("profiles").upsert({ id: managedUser.id, full_name: name });
+      await adminClient.from("profiles").upsert({ id: managedUser.id, full_name: name, phone: ownerPhone || null });
       const { data: branch, error: branchError } = await adminClient.from("stores").insert({
         tenant_id: tenant.id,
         name: branchName,
         slug: branchSlug,
-        cnpj: branchCnpj,
-        segment: "retail",
+        cnpj: branchDocument,
+        segment,
         whatsapp_phone: whatsappPhone,
         address,
         latitude,
@@ -256,6 +271,16 @@ async function assertCompanyOwner(adminClient: SupabaseClient, userId: string, t
   if (ownedTenantId !== tenantId) throw new Error("Somente o proprietário pode gerenciar a equipe da empresa.");
 }
 
+// Empresa suspensa ou com teste vencido não cria nem altera logins da equipe (o banco já bloqueia o resto).
+async function assertCompanyActive(adminClient: SupabaseClient, tenantId: string) {
+  const { data, error } = await adminClient.from("tenants").select("is_active, trial_ends_at").eq("id", tenantId).maybeSingle();
+  // Sem a migration 031 a coluna trial_ends_at não existe: mantém o comportamento anterior.
+  if (error && /trial_ends_at/i.test(error.message)) return;
+  if (error || !data) throw new Error("Empresa não encontrada.");
+  const trialExpired = data.trial_ends_at && new Date(data.trial_ends_at).getTime() <= Date.now();
+  if (data.is_active === false || trialExpired) throw new Error("A loja está suspensa. Fale com a equipe LIIST para reativar.");
+}
+
 async function listCompanyUsers(adminClient: SupabaseClient, callerUserId: string, tenantId: string) {
   await assertCompanyOwner(adminClient, callerUserId, tenantId);
   const [{ data: accessRows, error: accessError }, { data: storeRows, error: storeError }] = await Promise.all([
@@ -308,6 +333,7 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
   const branchIds = Array.from(new Set(Array.isArray(body.branch_ids) ? body.branch_ids.map(String).filter(Boolean) : []));
 
   await assertCompanyOwner(adminClient, callerUserId, tenantId);
+  await assertCompanyActive(adminClient, tenantId);
   if (!name || !email || !roles.length || roles.length !== new Set(requestedRoles).size || !branchIds.length) {
     throw new Error("Preencha nome, e-mail, pelo menos uma função e uma filial.");
   }
@@ -589,8 +615,24 @@ function json(payload: Record<string, unknown>) {
   return new Response(JSON.stringify(payload), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-function normalizeCnpj(value: unknown) {
+function normalizeDocument(value: unknown) {
   return String(value ?? "").replace(/\D/g, "").slice(0, 14);
+}
+
+// Documento da filial: CPF (11 dígitos) ou CNPJ (14 dígitos).
+function isValidDocument(value: string) {
+  return value.length === 11 ? isValidCpf(value) : isValidCnpj(value);
+}
+
+function isValidCpf(value: string) {
+  if (!/^\d{11}$/.test(value) || /^(\d)\1{10}$/.test(value)) return false;
+  const calculateDigit = (length: number) => {
+    let total = 0;
+    for (let index = 0; index < length; index += 1) total += Number(value[index]) * (length + 1 - index);
+    const remainder = (total * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+  return calculateDigit(9) === Number(value[9]) && calculateDigit(10) === Number(value[10]);
 }
 
 function isValidCnpj(value: string) {
