@@ -44,6 +44,11 @@ Depois do schema inicial, aplique as migrations da pasta `supabase` em ordem num
 1. `021_branch_access_tables_and_audit.sql`: acessos por filial, mesas e auditoria.
 2. `022_multi_role_company_users.sql`: mais de uma funcao por usuario.
 3. `023_operational_workflow.sql`: fluxo simplificado/completo, preparo e entrega por item, fechamento, pagamento e liberacao da mesa.
+4. `029_branch_document_cpf_or_cnpj.sql`: filial com CPF ou CNPJ. O CPF nao fica visivel para visitantes; o catalogo usa a coluna `public_document`, que so traz CNPJ. Aplique antes de publicar a Edge Function `create-store-user` atualizada.
+5. `030_store_display_flags.sql`: colunas de exibicao da filial que o catalogo publico le. Na producao nao muda nada; num banco novo cria as colunas.
+6. `031_company_signup_requests.sql`: cadastro pelo proprio lojista com aprovacao, periodo de teste e suspensao da empresa. Aplique antes de publicar a Edge Function `create-store-user` atualizada, que grava o fim do teste.
+
+Ordem de publicacao: migrations no Supabase, depois a Edge Function e so entao o merge no `main`, que publica o site no Cloudflare. O site novo depende das colunas e funcoes dessas migrations.
 
 Execute somente o conteudo SQL no SQL Editor do Supabase. A funcao `supabase/functions/create-store-user/index.ts` deve ser publicada como Edge Function separadamente.
 
