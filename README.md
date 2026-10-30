@@ -48,7 +48,7 @@ Depois do schema inicial, aplique as migrations da pasta `supabase` em ordem num
 5. `030_store_display_flags.sql`: colunas de exibicao da filial que o catalogo publico le. Na producao nao muda nada; num banco novo cria as colunas.
 6. `031_company_signup_requests.sql`: cadastro pelo proprio lojista com aprovacao, periodo de teste e suspensao da empresa. Aplique antes de publicar a Edge Function `create-store-user` atualizada, que grava o fim do teste.
 
-Ordem de publicacao: migrations no Supabase, depois a Edge Function e so entao o merge no `main`, que publica o site no Cloudflare. O site novo depende das colunas e funcoes dessas migrations.
+Ordem de publicacao: primeiro o merge no `main` (o Cloudflare publica o site), depois as migrations 029, 030 e 031 e por ultimo a Edge Function. O site novo funciona no banco antigo (volta para a leitura antiga sem a 029), mas o site antigo quebra o catalogo publico depois da 029, porque le `stores` com `select("*")` e a 029 tira dos visitantes a coluna `cnpj`. A Edge Function nova exige a 031.
 
 Execute somente o conteudo SQL no SQL Editor do Supabase. A funcao `supabase/functions/create-store-user/index.ts` deve ser publicada como Edge Function separadamente.
 
