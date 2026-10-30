@@ -13,7 +13,10 @@ import {
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { LiistCartMark } from "../../components/liist-brand";
+import { OPERATION_DOCUMENT_STORAGE_KEY as OPERATION_CNPJ_STORAGE_KEY } from "../../lib/access-destinations";
+import { formatDocumentAuto, isValidDocument } from "../../lib/branch-document";
 import { supabase } from "../../lib/supabase";
+import { useMyCompanyStatus } from "../admin/company-monitoring";
 
 type OperationalRole = "owner" | "branch_manager" | "waiter" | "cashier" | "kitchen" | "supervisor";
 type OperationalWorkspace = {
@@ -61,15 +64,6 @@ function hasOperationalRole(workspace: OperationalWorkspace | null, allowed: Ope
   return accessRoles(workspace?.access).some((role) => allowed.includes(role));
 }
 
-function formatCnpj(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 14);
-  return digits
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
-}
-
 function operationalError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? "");
   if (/run_internal_workflow_action|production_status|payment_confirmed_at/i.test(message)) return "O fluxo operacional ainda não foi aplicado no Supabase. Execute a migration 023_operational_workflow.sql.";
@@ -79,7 +73,6 @@ function operationalError(error: unknown, fallback: string) {
 }
 
 const operationCurrency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const OPERATION_CNPJ_STORAGE_KEY = "liist-operation-cnpj";
 
 function storedOperationCnpj() {
   return window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
@@ -107,10 +100,7 @@ export default function OperationPage() {
   const [workspace, setWorkspace] = useState<OperationalWorkspace | null>(null);
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [cnpj, setCnpj] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [openingTableId, setOpeningTableId] = useState("");
   const [message, setMessage] = useState("");
   const [notification, setNotification] = useState("");
@@ -146,7 +136,7 @@ export default function OperationPage() {
   async function loadWorkspace(currentSession: Session, selectedCnpj = cnpj || storedOperationCnpj(), silent = false) {
     if (!supabase) return;
     const normalizedCnpj = selectedCnpj.replace(/\D/g, "");
-    if (normalizedCnpj.length !== 14) {
+    if (!isValidDocument(normalizedCnpj)) {
       setSession(currentSession);
       setWorkspace(null);
       setLoading(false);
@@ -172,7 +162,7 @@ export default function OperationPage() {
       },
     } as OperationalWorkspace;
     setWorkspace(nextWorkspace);
-    setCnpj(formatCnpj(normalizedCnpj));
+    setCnpj(formatDocumentAuto(normalizedCnpj));
     window.localStorage.setItem(OPERATION_CNPJ_STORAGE_KEY, normalizedCnpj);
     const branch = nextWorkspace.branches[0];
     const tableResult = await supabase.from("restaurant_tables").select("id, code, name, is_active").eq("store_id", branch.id).eq("is_active", true).order("sort_order").order("code");
@@ -225,7 +215,7 @@ export default function OperationPage() {
       setMessage("Supabase não está configurado neste ambiente.");
       return;
     }
-    setCnpj(formatCnpj(storedOperationCnpj()));
+    setCnpj(formatDocumentAuto(storedOperationCnpj()));
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
@@ -276,33 +266,11 @@ export default function OperationPage() {
     };
   }, [session, workspace?.branches[0]?.id]);
 
-  async function signIn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase || submitting) return;
-    const normalizedCnpj = cnpj.replace(/\D/g, "");
-    if (normalizedCnpj.length !== 14) {
-      setMessage("Informe o CNPJ da filial.");
-      return;
-    }
-    setSubmitting(true);
-    setMessage("");
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error || !data.session) {
-      setSubmitting(false);
-      setMessage(error?.message ?? "Não foi possível entrar.");
-      return;
-    }
-    setSession(data.session);
-    await loadWorkspace(data.session, normalizedCnpj);
-    activeSessionKeyRef.current = operationSessionKey(data.session, normalizedCnpj);
-    setSubmitting(false);
-  }
-
-  async function changeBranchContext(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!session) return;
-    await loadWorkspace(session, cnpj);
-  }
+  // Sem sessão ou sem filial escolhida, a entrada única decide para onde ir.
+  useEffect(() => {
+    if (loading || workspace) return;
+    if (!session || !isValidDocument(storedOperationCnpj())) window.location.replace("/acesso");
+  }, [loading, session, workspace]);
 
   async function signOut() {
     await supabase?.auth.signOut();
@@ -352,6 +320,7 @@ export default function OperationPage() {
   const branch = workspace?.branches[0];
   const staffOrderingEnabled = workspace?.operation.entry_mode === "staff" || workspace?.operation.entry_mode === "both";
   const tableOrderingEnabled = workspace?.operation.entry_mode === "table" || workspace?.operation.entry_mode === "both";
+  const companyStatus = useMyCompanyStatus(workspace?.tenant.id, Boolean(session && workspace));
   const operatorInitials = useMemo(() => (workspace?.access.name ?? "U").split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(), [workspace?.access.name]);
 
   if (loading) return <main className="operation-page"><div className="operation-loading"><RefreshCw className="spinning" size={24} /><span>Carregando operação...</span></div></main>;
@@ -361,15 +330,23 @@ export default function OperationPage() {
       <main className="operation-page operation-login-page">
         <section className="operation-login-card">
           <LiistCartMark className="operation-login-mark" />
-          <div><span>LIIST Commerce</span><h1>Entrar na filial</h1></div>
-          <form onSubmit={session ? changeBranchContext : signIn}>
-            <label>CNPJ da filial<input value={cnpj} onChange={(event) => setCnpj(formatCnpj(event.target.value))} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
-            {!session ? <><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label><label>Senha<input type="password" minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label></> : null}
-            {message ? <p className="operation-login-error" role="alert">{message}</p> : null}
-            <button className="operation-primary" type="submit" disabled={submitting}>{submitting ? "Entrando..." : session ? "Acessar filial" : "Entrar"} <ArrowRight size={17} /></button>
-          </form>
-          {session ? <button className="operation-link-button" type="button" onClick={() => void signOut()}>Entrar com outro usuário</button> : null}
-          <a href="/acesso">Voltar às opções de acesso</a>
+          <div><span>LIIST Commerce</span><h1>{message ? "Não foi possível abrir a filial" : "Abrindo a filial..."}</h1></div>
+          {message ? <p className="operation-login-error" role="alert">{message}</p> : null}
+          <a className="operation-primary" href="/acesso?trocar=1">Escolher outra filial <ArrowRight size={17} /></a>
+          {session ? <button className="operation-link-button" type="button" onClick={() => void signOut()}>Entrar com outra conta</button> : null}
+        </section>
+      </main>
+    );
+  }
+
+  if (companyStatus && !companyStatus.is_active) {
+    return (
+      <main className="operation-page operation-login-page">
+        <section className="operation-login-card">
+          <LiistCartMark className="operation-login-mark" />
+          <div><span>{workspace.tenant.name}</span><h1>{companyStatus.suspended ? "Loja suspensa" : "Período de teste encerrado"}</h1></div>
+          <p className="operation-login-error" role="alert">{companyStatus.suspended_reason ?? "O atendimento pelo sistema está pausado. Fale com o dono da loja."}</p>
+          <button className="operation-link-button" type="button" onClick={() => void signOut()}>Sair</button>
         </section>
       </main>
     );

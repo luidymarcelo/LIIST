@@ -23,6 +23,7 @@ import {
   Package,
   Palette,
   Pencil,
+  Inbox,
   Plus,
   Power,
   Printer,
@@ -40,14 +41,21 @@ import {
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import type { DataValidation, Worksheet } from "exceljs";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { LiistBrand } from "../../components/liist-brand";
+import { companyCreationBody, EMPTY_COMPANY_FIELDS, validateAccount, validateCompanyRequest, type AccountFields, type CompanyRequestErrors, type CompanyRequestFields } from "../../lib/company-signup";
+import { DOCUMENT_PLACEHOLDER, detectDocumentKind, documentMaxLength, formatDocument, isValidDocument, type DocumentKind } from "../../lib/branch-document";
+import { BRANCH_DOCUMENT_STORAGE_KEY } from "../../lib/access-destinations";
+import { defaultRoute, defaultSettingsTab, parsePortalPath, portalPath, settingsTabs, type PortalRoute, type PortalSection, type SettingsTab } from "../../lib/portal-route";
 import { supabase } from "../../lib/supabase";
 import {
   CompanyOperations,
-  CompanyPortalNav,
   type CompanyPortalSection,
 } from "./company-operations";
+import { PortalHeader, PortalSidebar, PortalTabs, sectionLabel } from "./portal-shell";
+import { StoreEditor, type EditorProduct, type QuickProductPatch } from "./store-editor";
+import { NewCompanyForm } from "./new-company-form";
+import { CompanyRequests, CompanyStatusControl, CompanySuspendedNotice, TrialBanner, useCompanyStatuses, useMyCompanyStatus, type CompanyStatusRow } from "./company-monitoring";
 
 const publicEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
 const publicSupabaseUrl = publicEnv.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -131,7 +139,6 @@ type CatalogImportOptionRow = {
   sortOrder: number;
 };
 
-const BRANCH_CNPJ_STORAGE_KEY = "liist-branch-cnpj";
 
 type CatalogImportAdditionGroup = {
   name: string;
@@ -183,7 +190,7 @@ type AdminCompanyIdentityRow = {
 };
 type OrderedWorksheet = Worksheet & { orderNo: number };
 type ParameterScope = "company" | "branch";
-type BranchLocationTarget = "company" | "branch" | "existing";
+type BranchLocationTarget = "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
 type BranchLocationValue = { address: string; latitude: string; longitude: string };
 type OpenStreetMapPlace = { display_name?: string; lat?: string; lon?: string };
@@ -195,6 +202,22 @@ type BranchDetailsForm = {
   isActive: boolean;
 };
 type PortalMode = "admin" | "company" | "branch";
+const SETTINGS_SECTION_BY_TAB: Partial<Record<SettingsTab, CompanySettingsSection>> = { resumo: "overview", aparencia: "identity", pedidos: "parameters", senha: "access", excluir: "danger" };
+
+function settingsTabLabel(tab: SettingsTab, mode: PortalMode) {
+  const labels: Record<SettingsTab, string> = {
+    resumo: "Resumo",
+    dados: mode === "admin" ? "Dados da filial" : "Dados da loja",
+    filiais: "Filiais",
+    aparencia: "Logo e cores",
+    pedidos: "Pedidos e entrega",
+    mesas: "Mesas e QR Code",
+    equipe: "Equipe",
+    senha: mode === "admin" ? "Acesso do dono" : "Senha",
+    excluir: "Excluir empresa",
+  };
+  return labels[tab];
+}
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 const DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type";
@@ -690,9 +713,18 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [adminTenants, setAdminTenants] = useState<Tenant[]>([]);
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
-  const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
-  const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
-  const [companyPortalSection, setCompanyPortalSection] = useState<CompanyPortalSection>("catalog");
+  // A URL é a fonte da seção aberta: voltar/avançar do navegador e links diretos funcionam em todos os painéis.
+  const [route, setRoute] = useState<PortalRoute>(() => typeof window === "undefined" ? defaultRoute(portalMode) : parsePortalPath(portalMode, window.location.pathname));
+  const routePath = portalPath(portalMode, route);
+  const routeSection = route.view === "section" ? route.section : null;
+  const activeSettingsTab: SettingsTab = route.view === "section" && route.section === "configuracoes" ? route.tab ?? defaultSettingsTab(portalMode) : defaultSettingsTab(portalMode);
+  const companySettingsSection: CompanySettingsSection = SETTINGS_SECTION_BY_TAB[activeSettingsTab] ?? "overview";
+  // Só estas abas dependem dos parâmetros completos da empresa (a senha do dono só pelo admin).
+  const routeNeedsSettings = routeSection === "configuracoes" && (["resumo", "aparencia", "pedidos"].includes(activeSettingsTab) || (activeSettingsTab === "senha" && portalMode === "admin"));
+  const settingsRequestRef = useRef("");
+  const companyLogoInputRef = useRef<HTMLInputElement>(null);
+  const [savingCompanyLogo, setSavingCompanyLogo] = useState(false);
+  const adminListLoadedRef = useRef(false);
   const [settingsLoadedTenantId, setSettingsLoadedTenantId] = useState("");
   const [additionGroupName, setAdditionGroupName] = useState("");
   const [additionGroupRequired, setAdditionGroupRequired] = useState(false);
@@ -713,16 +745,18 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([]);
   const [message, setMessage] = useState("");
-  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", branchCnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
+  const [newCompanyFields, setNewCompanyFields] = useState<CompanyRequestFields>(EMPTY_COMPANY_FIELDS);
+  const [newCompanyErrors, setNewCompanyErrors] = useState<CompanyRequestErrors>({});
+  const [newCompanyAccount, setNewCompanyAccount] = useState<AccountFields>({ email: "", password: "" });
+  const [newCompanyTrialDays, setNewCompanyTrialDays] = useState("");
+  const [creatingCompany, setCreatingCompany] = useState(false);
   const [branchForm, setBranchForm] = useState({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
   const [branchLocationForm, setBranchLocationForm] = useState<BranchLocationValue>({ address: "", latitude: "", longitude: "" });
   const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", cnpj: "", phone: "", coverNote: "", isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
   const [validatingBranchAddress, setValidatingBranchAddress] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
-  const [showBranchDetails, setShowBranchDetails] = useState(false);
   const [savingBranchDetails, setSavingBranchDetails] = useState(false);
-  const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
   const [companyIdentity, setCompanyIdentity] = useState({ isActive: true, themeColor: "#111513", profileImageUrl: "" });
@@ -744,6 +778,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [companyProductImageLimit, setCompanyProductImageLimit] = useState(1);
   const [branchProductImageLimits, setBranchProductImageLimits] = useState<Record<string, ProductImageLimitMode>>({});
   const [activeProductImageLimit, setActiveProductImageLimit] = useState(1);
+  const [activeCatalogLayout, setActiveCatalogLayout] = useState<CatalogLayout>("horizontal");
   const [companyControlsStock, setCompanyControlsStock] = useState(true);
   const [branchStockControlModes, setBranchStockControlModes] = useState<Record<string, StockControlMode>>({});
   const [companyEnablesAdditions, setCompanyEnablesAdditions] = useState(false);
@@ -793,6 +828,92 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   const [deletingCategoryId, setDeletingCategoryId] = useState("");
   const [productForm, setProductForm] = useState({ ...EMPTY_PRODUCT_FORM });
   const [accessDenied, setAccessDenied] = useState(false);
+  const { statuses: companyStatuses, reload: reloadCompanyStatuses } = useCompanyStatuses(portalMode === "admin" && Boolean(session));
+  const myCompanyStatus = useMyCompanyStatus(tenant?.id, isBusinessPortal && Boolean(session));
+
+  function navigate(next: PortalRoute, options: { replace?: boolean } = {}) {
+    setRoute(next);
+    const nextPath = portalPath(portalMode, next);
+    if (nextPath === (window.location.pathname.replace(/\/+$/, "") || "/")) return;
+    if (options.replace) window.history.replaceState(null, "", nextPath);
+    else window.history.pushState(null, "", nextPath);
+    window.scrollTo({ top: 0 });
+  }
+
+  function goTo(next: PortalRoute) {
+    setMessage("");
+    navigate(next);
+  }
+
+  useEffect(() => {
+    const syncFromAddress = () => {
+      setMessage("");
+      setRoute(parsePortalPath(portalMode, window.location.pathname));
+    };
+    window.addEventListener("popstate", syncFromAddress);
+    return () => window.removeEventListener("popstate", syncFromAddress);
+  }, [portalMode]);
+
+  useEffect(() => {
+    if (!supabase || !tenant?.id || tenant.profile_image_url !== undefined) return;
+    let active = true;
+    const tenantId = tenant.id;
+    void (async () => {
+      const client = supabase!;
+      const { data, error } = await client.from("tenants").select("theme_color, profile_image_url").eq("id", tenantId).maybeSingle();
+      let identity: { theme_color?: string | null; profile_image_url?: string | null } | null = error ? null : data;
+      if (!identity) {
+        const { data: publicCompanies } = await client.rpc("get_public_catalog_companies");
+        identity = ((publicCompanies ?? []) as Array<{ tenant_id: string; theme_color: string | null; profile_image_url: string | null }>).find((row) => row.tenant_id === tenantId) ?? null;
+      }
+      if (!active || !identity) return;
+      const loaded = identity;
+      setTenant((current) => current && current.id === tenantId ? { ...current, theme_color: loaded.theme_color ?? current.theme_color, profile_image_url: loaded.profile_image_url ?? null } : current);
+    })();
+    return () => { active = false; };
+  }, [tenant?.id, tenant?.profile_image_url]);
+
+  // Formulários em janela não ficam abertos por cima de outra seção depois de navegar.
+  useEffect(() => {
+    setCatalogEditorMode(null);
+    setShowOptionGroupForm(false);
+  }, [routePath]);
+
+  // Carrega os dados que a seção do endereço precisa (empresa do admin, ajustes da empresa).
+  useEffect(() => {
+    if (loading || !session) return;
+    if (portalMode === "admin") {
+      if (route.view !== "section") {
+        settingsRequestRef.current = "";
+        if (tenant) {
+          setTenant(null);
+          setBranches([]);
+          setActiveBranchId("");
+          setSettingsLoadedTenantId("");
+        }
+        return;
+      }
+      const routeTenantId = route.tenantId ?? "";
+      if (!adminListLoadedRef.current) return;
+      if (!adminTenants.some((item) => item.id === routeTenantId)) {
+        navigate({ view: "companies" }, { replace: true });
+        return;
+      }
+      if (routeNeedsSettings) {
+        if (settingsLoadedTenantId !== routeTenantId && settingsRequestRef.current !== routeTenantId) {
+          settingsRequestRef.current = routeTenantId;
+          void openCompanySettings(routeTenantId);
+        }
+        return;
+      }
+      if (tenant?.id !== routeTenantId) selectAdminTenant(routeTenantId);
+      return;
+    }
+    if (isCompanyPortal && routeNeedsSettings && tenant && settingsLoadedTenantId !== tenant.id && settingsRequestRef.current !== tenant.id) {
+      settingsRequestRef.current = tenant.id;
+      void openCompanySettings(tenant.id);
+    }
+  }, [routePath, loading, session, adminTenants, tenant?.id, settingsLoadedTenantId]);
 
   function resetProductEditor() {
     setEditingProductId("");
@@ -808,9 +929,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     resetProductEditor();
   }
 
-  function openNewProductEditor() {
+  function openNewProductEditor(categoryId = "") {
     setCategoryName("");
     resetProductEditor();
+    setProductForm({ ...EMPTY_PRODUCT_FORM, categoryId });
     setCatalogEditorMode("product");
   }
 
@@ -866,8 +988,13 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
     if (isBranchPortal) {
-      const savedCnpj = window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
+      const savedCnpj = window.localStorage.getItem(BRANCH_DOCUMENT_STORAGE_KEY)
         ?? "";
+      // Sem filial escolhida, volta para a entrada, que lista as filiais desta conta.
+      if (!savedCnpj) {
+        window.location.replace("/acesso");
+        return;
+      }
       const { data: branchWorkspace, error: branchWorkspaceError } = await supabase.rpc("get_branch_workspace", { p_cnpj: savedCnpj });
       if (branchWorkspace?.tenant && branchWorkspace?.branches?.length) {
         const portalBranches = await hydrateBranchDetails(branchWorkspace.branches as Branch[]);
@@ -949,6 +1076,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     const allBranches = (allBranchRows ?? []) as Branch[];
     setAdminTenants(nextTenants);
     setAdminBranches(allBranches);
+    adminListLoadedRef.current = true;
     const tenantId = preferredTenantId && nextTenants.some((item) => item.id === preferredTenantId)
       ? preferredTenantId
       : "";
@@ -967,7 +1095,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   function workspaceSessionKey(nextSession: Session | null) {
     if (!nextSession) return "";
     const branchCnpj = isBranchPortal
-      ? window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY) ?? ""
+      ? window.localStorage.getItem(BRANCH_DOCUMENT_STORAGE_KEY) ?? ""
       : "";
     return `${portalMode}:${nextSession.user.id}:${branchCnpj}`;
   }
@@ -1042,11 +1170,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   }, []);
 
   useEffect(() => {
-    const isCatalogWorkspace = isBusinessPortal || adminSection === "catalog";
+    const isCatalogWorkspace = isBusinessPortal || routeSection === "loja";
     if (!isCatalogWorkspace || !tenant?.id) return;
     const branchTenantId = branches.find((branch) => branch.id === activeBranchId)?.tenant_id ?? tenant.id;
     void refreshMeasurementUnits(branchTenantId);
-  }, [activeBranchId, adminSection, branches, isBusinessPortal, tenant?.id]);
+  }, [activeBranchId, routeSection, branches, isBusinessPortal, tenant?.id]);
 
   useEffect(() => {
     if (!tenant?.id) return;
@@ -1130,10 +1258,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     }
     const { data: branch } = await supabase.from("stores").select("tenant_id").eq("id", branchId).maybeSingle();
     if (!branch?.tenant_id) return;
-    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY];
+    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY, INTERNAL_CATALOG_COMPACT_PARAMETER_KEY, PRINT_MODE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY];
     const [tenantParameterResult, storeParameterResult] = await Promise.all([
       supabase.from("tenant_parameters").select("parameter_key, parameter_value").eq("tenant_id", branch.tenant_id).in("parameter_key", parameterKeys),
-      supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", parameterKeys),
+      supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", [...parameterKeys, BUSINESS_HOURS_PARAMETER_KEY]),
     ]);
     const tenantParameters = new Map((tenantParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]));
     const storeParameters = new Map((storeParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]));
@@ -1149,6 +1277,10 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       storeParameters.get(ADDITIONS_PARAMETER_KEY) ?? tenantParameters.get(ADDITIONS_PARAMETER_KEY),
       false,
     ));
+    setActiveCatalogLayout(catalogLayoutValue(storeParameters.get(CATALOG_LAYOUT_PARAMETER_KEY) ?? tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
+    if (storeParameterResult.error) return;
+    const storedBusinessHours = businessHoursValue(storeParameters.get(BUSINESS_HOURS_PARAMETER_KEY));
+    setBranchBusinessHours((current) => branchId in current ? current : { ...current, [branchId]: storedBusinessHours });
   }
 
   async function resolveBranchControlsStock(branchId: string) {
@@ -1215,7 +1347,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     });
     setBranchDetailsForm({
       name: selectedBranch?.name ?? "",
-      cnpj: formatCnpj(selectedBranch?.cnpj ?? ""),
+      cnpj: formatDocument(selectedBranch?.cnpj ?? "", detectDocumentKind(selectedBranch?.cnpj)),
       phone: formatWhatsapp(selectedBranch?.whatsapp_phone ?? ""),
       coverNote: selectedBranch?.cover_note ?? "",
       isActive: selectedBranch?.is_active ?? true,
@@ -1237,14 +1369,12 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   }, [companyProfilePreview]);
 
   function branchLocationForTarget(target: BranchLocationTarget): BranchLocationValue {
-    if (target === "company") return companyForm;
     if (target === "branch") return branchForm;
     return branchLocationForm;
   }
 
   function updateBranchLocation(target: BranchLocationTarget, location: BranchLocationValue) {
-    if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
-    else if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
+    if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
     else setBranchLocationForm(location);
   }
 
@@ -1347,66 +1477,38 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     event.preventDefault();
     if (!supabase) return;
     setMessage("");
-    const latitude = validCoordinate(companyForm.latitude, -90, 90);
-    const longitude = validCoordinate(companyForm.longitude, -180, 180);
-    if (!companyForm.address.trim()) {
-      setMessage("Informe o endereço da primeira filial.");
+    const fieldErrors = validateCompanyRequest(newCompanyFields);
+    const accountErrors = validateAccount(newCompanyAccount);
+    setNewCompanyErrors(fieldErrors);
+    if (Object.keys(fieldErrors).length) {
+      setMessage("Revise os campos destacados.");
       return;
     }
-    if (latitude === null || longitude === null) {
-      setMessage("Use a localização atual ou valide o endereço da primeira filial.");
+    if (Object.keys(accountErrors).length) {
+      setMessage(accountErrors.email ?? accountErrors.password ?? "");
       return;
     }
-    if (!isValidCnpj(companyForm.branchCnpj)) {
-      setMessage("Informe um CNPJ válido para a primeira filial.");
-      return;
-    }
+    setCreatingCompany(true);
     const { data, error } = await supabase.functions.invoke("create-store-user", {
-      body: {
-        name: companyForm.userName.trim(),
-        email: companyForm.userEmail.trim(),
-        password: companyForm.userPassword,
-        company: {
-          name: companyForm.name.trim(),
-          slug: slugify(companyForm.name),
-          branch_name: companyForm.branch.trim(),
-          branch_slug: slugify(companyForm.branch),
-          branch_cnpj: companyForm.branchCnpj.replace(/\D/g, ""),
-          whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
-          address: companyForm.address.trim(),
-          latitude,
-          longitude,
-          cover_note: companyForm.coverNote.trim() || null,
-        },
-      },
+      body: companyCreationBody(newCompanyFields, newCompanyAccount, newCompanyTrialDays),
     });
+    setCreatingCompany(false);
     if (error || data?.error || !data?.tenant || !data?.branch) {
       setMessage(data?.error ?? error?.message ?? "Não foi possível criar a empresa e seu acesso.");
       return;
     }
-    const tenantRow = data.tenant as Tenant;
-    let branchRow = data.branch as Branch;
-    let coverNoteWarning = "";
-    if (companyForm.coverNote.trim()) {
-      const { data: updatedBranch, error: coverNoteError } = await supabase
-        .from("stores")
-        .update({
-          cover_note: companyForm.coverNote.trim() || null,
-        })
-        .eq("id", branchRow.id)
-        .select(BRANCH_DETAIL_SELECT)
-        .single();
-      if (updatedBranch) branchRow = updatedBranch as Branch;
-      if (coverNoteError) coverNoteWarning = " A empresa foi criada, mas a observação da capa não foi salva.";
-    }
-    setMessage(`Empresa, filial e acesso criados. O cliente já pode entrar no Portal da empresa.${coverNoteWarning}`);
+    setMessage("Empresa e acesso criados. O dono já pode entrar e confirmar o endereço da loja no mapa.");
     setTenant(null);
     setBranches([]);
     setActiveBranchId("");
-    setAdminTenants((current) => [...current, tenantRow]);
-    setAdminBranches((current) => [...current, branchRow]);
-    setAdminSection("companies");
-    setCompanyForm({ name: "", branch: "", branchCnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
+    setAdminTenants((current) => [...current, data.tenant as Tenant]);
+    setAdminBranches((current) => [...current, data.branch as Branch]);
+    void reloadCompanyStatuses();
+    navigate({ view: "companies" });
+    setNewCompanyFields(EMPTY_COMPANY_FIELDS);
+    setNewCompanyErrors({});
+    setNewCompanyAccount({ email: "", password: "" });
+    setNewCompanyTrialDays("");
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
@@ -1740,28 +1842,17 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setDeletingOptionGroupId("");
   }
 
-  function openAdminCatalog(tenantId: string) {
+  function selectAdminTenant(tenantId: string) {
     const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? null;
     const selectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
     setTenant(selectedTenant);
     setBranches(selectedBranches);
     setActiveBranchId(selectedBranches[0]?.id ?? "");
-    setShowBranchForm(false);
-    setAdminSection("catalog");
   }
 
-  function showCompanies() {
-    setAdminSection("companies");
-    setTenant(null);
-    setBranches([]);
-    setActiveBranchId("");
-    setSettingsLoadedTenantId("");
-    setShowBranchForm(false);
-    setMessage("");
-  }
-
-  async function openCompanySettings(tenantId: string, section: CompanySettingsSection = "overview") {
+  async function openCompanySettings(tenantId: string) {
     if (!supabase) return;
+    settingsRequestRef.current = tenantId;
     const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? (tenant?.id === tenantId ? tenant : null);
     const adminSelectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
     const selectedBranches = adminSelectedBranches.length
@@ -1808,8 +1899,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     ])));
     setShowDeleteCompany(false);
     setDeleteConfirmation("");
-    setAdminSection("settings");
-    setCompanySettingsSection(section);
     setParameterScope((current) => isSameTenant ? current : "company");
     setLoadingSettings(true);
     setMessage("");
@@ -1839,6 +1928,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         .eq("id", tenantId)
         .maybeSingle(),
     ]);
+    if (settingsRequestRef.current !== tenantId) return;
     setLoadingSettings(false);
     const { data, error } = settingsResult;
     if (error || data?.error || tenantParameterResult.error || branchParameterResult.error || tenantIdentityResult.error) {
@@ -2001,9 +2091,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setSettingsLoadedTenantId(tenantId);
   }
 
-  async function saveCompanyParameters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase || !tenant || savingParameters) return;
+  async function saveCompanyParameters(): Promise<boolean> {
+    if (!supabase || !tenant || savingParameters) return false;
     setSavingParameters(true);
     setMessage("");
     const updatedAt = new Date().toISOString();
@@ -2076,25 +2165,25 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     if (tenantParameterError) {
       setSavingParameters(false);
       setMessage(tenantParameterError.message);
-      return;
+      return false;
     }
 
     setSavingParameters(false);
     if (activeBranchId) void refreshActiveBranchParameters(activeBranchId);
     setMessage(`Parâmetros padrão de ${tenant.name} atualizados.`);
+    return true;
   }
 
-  async function saveBranchParameters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase || !tenant || !activeBranchId || savingParameters) return;
+  async function saveBranchParameters(): Promise<boolean> {
+    if (!supabase || !tenant || !activeBranchId || savingParameters) return false;
 
     const branch = branches.find((item) => item.id === activeBranchId);
-    if (!branch) return;
+    if (!branch) return false;
 
     const fee = moneyInputNumber(branchDeliveryFees[branch.id] ?? "0");
     if (!Number.isFinite(fee) || fee < 0) {
       setMessage(`Informe uma taxa de entrega válida para ${branch.name}.`);
-      return;
+      return false;
     }
 
     setSavingParameters(true);
@@ -2238,7 +2327,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
-      return;
+      return false;
     }
 
     const { error: feeError } = await supabase
@@ -2248,7 +2337,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     if (feeError) {
       setSavingParameters(false);
       setMessage(feeError.message);
-      return;
+      return false;
     }
 
     const updateFee = (item: Branch) => item.id === branch.id ? { ...item, delivery_fee: fee } : item;
@@ -2257,6 +2346,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setSavingParameters(false);
     void refreshActiveBranchParameters(branch.id);
     setMessage(`Parâmetros da filial ${branch.name} atualizados.`);
+    return true;
   }
 
   async function downloadPrintAgentInstaller(branch: Branch) {
@@ -2500,7 +2590,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setActiveBranchId("");
     setShowDeleteCompany(false);
     setDeleteConfirmation("");
-    setAdminSection("companies");
+    navigate({ view: "companies" });
     setMessage(data.warning ?? `Empresa ${deletedTenantName} e todos os seus dados foram excluídos.`);
   }
 
@@ -2513,8 +2603,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       setMessage("Informe um WhatsApp válido para a filial.");
       return;
     }
-    if (!isValidCnpj(branchForm.cnpj)) {
-      setMessage("Informe um CNPJ válido para a filial.");
+    if (!isValidDocument(branchForm.cnpj)) {
+      setMessage("Informe um CPF ou CNPJ válido para a filial.");
       return;
     }
     const latitude = validCoordinate(branchForm.latitude, -90, 90);
@@ -2558,7 +2648,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
 
     setSavingBranch(false);
     if (error || !data) {
-      setMessage(error?.code === "23505" ? "Já existe uma filial com este nome ou CNPJ." : error?.message ?? "Não foi possível criar a filial.");
+      setMessage(error?.code === "23505" ? "Já existe uma filial com este nome ou documento." : error?.message ?? "Não foi possível criar a filial.");
       return;
     }
 
@@ -2577,7 +2667,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setBranchBusinessHours((current) => ({ ...current, [branchRow.id]: createDefaultBusinessHours() }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
-    setShowBranchForm(false);
+    navigate({ view: "section", section: "configuracoes", tenantId: portalMode === "admin" ? tenant.id : undefined, tab: "dados" });
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
 
@@ -2598,8 +2688,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       setMessage("Informe um WhatsApp válido para a filial.");
       return;
     }
-    if (!isValidCnpj(cnpj)) {
-      setMessage("Informe um CNPJ válido para a filial.");
+    if (!isValidDocument(cnpj)) {
+      setMessage("Informe um CPF ou CNPJ válido para a filial.");
       return;
     }
     if (!address) {
@@ -2620,7 +2710,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       cover_note: branchDetailsForm.coverNote.trim() || null,
       is_active: branchDetailsForm.isActive,
     };
-    const businessHours = businessHoursValue(branchBusinessHours[activeBranchId] ?? createDefaultBusinessHours());
+    const loadedBusinessHours = branchBusinessHours[activeBranchId];
     setSavingBranchDetails(true);
     setMessage("");
     const { error } = await supabase
@@ -2632,13 +2722,14 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       setMessage(error.message);
       return;
     }
-    const { error: businessHoursError } = await supabase.from("store_parameters").upsert({
+    // Sem horário carregado (falha de rede), mantém o que está salvo em vez de gravar o padrão.
+    const { error: businessHoursError } = loadedBusinessHours ? await supabase.from("store_parameters").upsert({
       store_id: activeBranchId,
       parameter_key: BUSINESS_HOURS_PARAMETER_KEY,
-      parameter_value: businessHours,
+      parameter_value: businessHoursValue(loadedBusinessHours),
       is_public: true,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "store_id,parameter_key" });
+    }, { onConflict: "store_id,parameter_key" }) : { error: null };
     setSavingBranchDetails(false);
     if (businessHoursError) {
       setMessage(businessHoursError.message);
@@ -3639,6 +3730,67 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
     setMessage("Foto removida do produto.");
   }
 
+  // Nome e preço alterados direto no card, sem abrir o formulário.
+  async function updateProductQuick(productId: string, patch: QuickProductPatch) {
+    if (!supabase || !activeBranchId) return false;
+    const product = products.find((item) => item.id === productId);
+    if (!product) return false;
+    const name = patch.name?.trim();
+    const update = {
+      ...(name ? { name } : {}),
+      ...(patch.price !== undefined && Number.isFinite(patch.price) && patch.price >= 0 ? { price: patch.price } : {}),
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("products").update(update).eq("id", productId).eq("store_id", activeBranchId);
+    if (error) {
+      setMessage(error.message);
+      return false;
+    }
+    setProducts((current) => current.map((item) => item.id === productId ? { ...item, ...update } : item));
+    setMessage(`${name ?? product.name} atualizado.`);
+    return true;
+  }
+
+  // Foto da loja trocada direto no editor: grava na hora, sem passar pela aba de aparência.
+  async function replaceCompanyLogo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file || !supabase || !tenant || savingCompanyLogo) return;
+    const validationMessage = validateCatalogImage(file);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+    const uploadBranchId = branches[0]?.id;
+    if (!uploadBranchId) {
+      setMessage("Cadastre uma filial antes de enviar a foto da loja.");
+      return;
+    }
+    setSavingCompanyLogo(true);
+    setMessage("Enviando a foto da loja...");
+    let uploadedPath = "";
+    try {
+      const uploaded = await uploadCatalogImage(file, "company-profile", uploadBranchId);
+      uploadedPath = uploaded.path;
+      const previousPath = storagePathFromPublicUrl(tenant.profile_image_url ?? companyIdentity.profileImageUrl);
+      const { error } = await supabase.from("tenants").update({ profile_image_url: uploaded.url }).eq("id", tenant.id).select("id").single();
+      if (error) throw new Error(/JSON object requested|0 rows/i.test(error.message) ? "Sem permissão para trocar a foto da loja." : error.message);
+      uploadedPath = "";
+      if (previousPath && previousPath !== uploaded.path) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+      const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, profile_image_url: uploaded.url } : item;
+      setTenant((current) => current ? updateTenant(current) : current);
+      setAdminTenants((current) => current.map(updateTenant));
+      setCompanyIdentity((current) => ({ ...current, profileImageUrl: uploaded.url }));
+      setMessage("Foto da loja atualizada.");
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      const errorMessage = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? "");
+      setMessage(errorMessage || "Não foi possível trocar a foto da loja.");
+    } finally {
+      setSavingCompanyLogo(false);
+    }
+  }
+
   async function toggleProductStatus(product: Product) {
     if (!supabase || !activeBranchId || updatingProductStatusId || deletingProductId) return;
     const nextStatus = !product.is_active;
@@ -3743,100 +3895,146 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
   if (accessDenied) return <AdminDenied />;
-  if (!session) return <AdminLogin portalMode={portalMode} />;
+  if (!session) return <LoginRedirect />;
+
+  const routeTenantId = route.view === "section" ? route.tenantId : undefined;
+  const sectionRouteFor = (section: PortalSection, tab?: SettingsTab): PortalRoute => ({ view: "section", section, tenantId: routeTenantId, tab });
+  const waitingAdminTenant = portalMode === "admin" && route.view === "section" && tenant?.id !== route.tenantId;
+  const pageTitle = route.view === "companies" ? "Empresas" : route.view === "new-company" ? "Nova empresa" : route.view === "requests" ? "Solicitações" : sectionLabel(portalMode, route.section);
+  const pageContext = route.view === "section" ? tenant?.name : "Administração";
+  const branchLayoutMode = branchCatalogLayouts[activeBranchId];
+  // Com as configurações abertas nesta sessão vale o que está nelas (pode ter acabado de ser salvo); senão, o lido da filial.
+  const editorCatalogLayout = settingsLoadedTenantId !== tenant?.id ? activeCatalogLayout : !branchLayoutMode || branchLayoutMode === "inherit" ? companyCatalogLayout : branchLayoutMode;
+  const editorProducts: EditorProduct[] = products.map((product) => ({
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    price: Number(product.price),
+    unit: product.unit,
+    badge: product.badge,
+    categoryId: product.category_id,
+    isActive: product.is_active,
+    imageUrl: product.product_images?.[0]?.image_url ?? product.image_url,
+    imageCount: product.product_images?.length ?? (product.image_url ? 1 : 0),
+  }));
+  const findProduct = (productId: string) => products.find((product) => product.id === productId);
 
   return (
-    <main className="admin-page">
-      <header className="admin-topbar">
-        <div className="admin-topbar-left">
-          <LiistBrand compact context={isCompanyPortal ? "Portal da empresa" : isBranchPortal ? "Painel da filial" : "Administração"} />
-          <a href="/" className="admin-back"><ArrowLeft size={17} /> Catálogo público</a>
-        </div>
-        <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
-      </header>
-      <section className={isBusinessPortal ? "admin-page-inner" : "admin-page-inner admin-page-inner-platform"}>
-        <div className={isBusinessPortal ? "company-portal-workspace" : "admin-console-layout"}>
-          {portalMode === "admin" ? (
-            <PlatformAdminSidebar
-              section={adminSection}
-              companyCount={adminTenants.length}
-              onCompanies={showCompanies}
-              onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); setMessage(""); }}
-            />
-          ) : null}
-          <div className={isBusinessPortal ? "company-portal-content" : "admin-console-content"}>
-        {isBusinessPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : isBranchPortal ? tenant?.name ?? "Painel da filial" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Empresa e operação" : isBranchPortal ? "Gestão da filial" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Catálogo, equipe e mesas em áreas separadas." : isBranchPortal ? "Atualize o catálogo somente da filial autorizada." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
+    <main className="portal-page">
+      <PortalSidebar
+        mode={portalMode}
+        route={route}
+        tenantName={tenant?.name}
+        tenantId={routeTenantId}
+        branches={branches}
+        activeBranchId={activeBranchId}
+        email={session.user.email ?? ""}
+        onNavigate={goTo}
+        onBranchChange={(branchId) => { setActiveBranchId(branchId); setMessage(""); }}
+        onSignOut={() => void supabase?.auth.signOut()}
+      />
+      <div className="portal-main">
+        {routeSection !== "loja" ? <PortalHeader title={pageTitle} context={pageContext} /> : null}
+        {routeSection === "configuracoes" ? (
+          <PortalTabs mode={portalMode} label="Assuntos das configurações" tabs={settingsTabs(portalMode).map((id) => ({ id, label: settingsTabLabel(id, portalMode) }))} active={activeSettingsTab} routeFor={(tab) => sectionRouteFor("configuracoes", tab)} onNavigate={goTo} />
+        ) : null}
 
-        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => {
-          const nextSettingsSection: CompanySettingsSection = companySettingsSection === "overview" || companySettingsSection === "access" || companySettingsSection === "parameters" || companySettingsSection === "danger" ? "identity" : companySettingsSection;
-          setCompanyPortalSection(section);
-          setMessage("");
-          if (section === "settings") {
-            if (nextSettingsSection !== companySettingsSection) setCompanySettingsSection(nextSettingsSection);
-            if (settingsLoadedTenantId !== tenant.id) void openCompanySettings(tenant.id, nextSettingsSection);
-          }
-        }} /> : null}
-
-        {isCompanyPortal && tenant && (companyPortalSection === "team" || companyPortalSection === "tables") ? (
+        {isBusinessPortal && myCompanyStatus ? <TrialBanner status={myCompanyStatus} /> : null}
+        {/* Loja criada pelo cadastro ou pelo admin nasce sem localização: sem ela não há distância nem taxa de entrega. */}
+        {tenant && activeBranch && activeBranch.latitude == null && !(routeSection === "configuracoes" && activeSettingsTab === "dados") ? (
+          <p className="company-location-banner">Confirme o endereço de {activeBranch.name} no mapa para calcular a distância e a taxa de entrega. <button className="admin-link" type="button" onClick={() => goTo(sectionRouteFor("configuracoes", "dados"))}>Confirmar endereço</button></p>
+        ) : null}
+        {waitingAdminTenant ? (
+          <p className="admin-muted">Carregando empresa...</p>
+        ) : portalMode === "admin" && route.view === "companies" ? (
+          <AdminCompanies tenants={adminTenants} branches={adminBranches} statuses={companyStatuses} onStatusChanged={() => void reloadCompanyStatuses()} onOpenRequests={() => goTo({ view: "requests" })} onOpenCatalog={(tenantId) => goTo({ view: "section", section: "loja", tenantId })} onOpenSettings={(tenantId) => goTo({ view: "section", section: "configuracoes", tenantId, tab: "resumo" })} />
+        ) : portalMode === "admin" && route.view === "requests" ? (
+          <CompanyRequests onApproved={() => { void loadWorkspace(session.user.id); void reloadCompanyStatuses(); }} onCreateManually={() => goTo({ view: "new-company" })} />
+        ) : isBusinessPortal && myCompanyStatus && !myCompanyStatus.is_active ? (
+          <CompanySuspendedNotice status={myCompanyStatus} />
+        ) : !tenant && isBusinessPortal ? (
+          <section className="admin-form-panel access-denied-panel"><h2>Sem acesso a este painel</h2><p>Esta conta não tem acesso a esta área. Veja os acessos liberados para ela.</p><a className="admin-primary" href="/acesso?trocar=1">Ver meus acessos</a><button className="admin-link" type="button" onClick={() => supabase?.auth.signOut()}>Entrar com outra conta</button></section>
+        ) : route.view === "new-company" || !tenant ? (
+          <NewCompanyForm
+            fields={newCompanyFields}
+            errors={newCompanyErrors}
+            account={newCompanyAccount}
+            trialDays={newCompanyTrialDays}
+            busy={creatingCompany}
+            onFieldChange={(key, value) => { setNewCompanyFields((current) => ({ ...current, [key]: value })); setNewCompanyErrors((current) => ({ ...current, [key]: undefined })); }}
+            onAccountChange={setNewCompanyAccount}
+            onTrialDaysChange={setNewCompanyTrialDays}
+            onSubmit={createCompany}
+          />
+        ) : isCompanyPortal && (activeSettingsTab === "mesas" || activeSettingsTab === "equipe") && routeSection === "configuracoes" ? (
           <CompanyOperations
-            section={companyPortalSection}
+            section={activeSettingsTab === "equipe" ? "team" : "tables"}
             tenant={tenant}
             branches={branches}
             activeBranchId={activeBranchId}
             onBranchChange={setActiveBranchId}
           />
-        ) : portalMode === "admin" && adminSection === "companies" ? (
-          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); }} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
-        ) : !tenant && isBusinessPortal ? (
-          <section className="admin-form-panel access-denied-panel"><h2>Acesso da empresa não vinculado</h2><p>O login foi aceito, mas não foi encontrado o vínculo deste e-mail com uma empresa cadastrada.</p><button className="admin-primary" onClick={() => supabase?.auth.signOut()}>Sair e entrar novamente</button></section>
-        ) : adminSection === "new" || !tenant ? (
-          <form className="admin-form-panel new-company-form" onSubmit={createCompany}>
-            <div className="branch-form-heading"><div><span>Novo cliente</span><h2>Cadastrar empresa</h2><p>Crie a empresa, a primeira filial e o acesso principal que será entregue ao responsável.</p></div><Building2 size={22} /></div>
-            <div className="admin-form-grid">
-              <label>Empresa<input value={companyForm.name} onChange={(event) => setCompanyForm({ ...companyForm, name: event.target.value })} placeholder="Ex.: Material Forte" required /></label>
-              <label>Primeira filial<input value={companyForm.branch} onChange={(event) => setCompanyForm({ ...companyForm, branch: event.target.value })} placeholder="Ex.: Filial Centro" required /></label>
-              <label>CNPJ da primeira filial<input value={companyForm.branchCnpj} onChange={(event) => setCompanyForm({ ...companyForm, branchCnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
-              <label>WhatsApp<input value={companyForm.phone} onChange={(event) => setCompanyForm({ ...companyForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
-              <label>Nome do responsável<input value={companyForm.userName} onChange={(event) => setCompanyForm({ ...companyForm, userName: event.target.value })} placeholder="Nome do cliente" required /></label>
-              <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
-              <label>Senha de acesso<input type="password" minLength={6} value={companyForm.userPassword} onChange={(event) => setCompanyForm({ ...companyForm, userPassword: event.target.value })} placeholder="Mínimo de 6 caracteres" required /></label>
-            </div>
-            <BranchCoverNoteEditor
-              note={companyForm.coverNote}
-              onNoteChange={(coverNote) => setCompanyForm({ ...companyForm, coverNote })}
-            />
-            <BranchLocationPicker
-              value={companyForm}
-              locating={locatingBranchForm === "company"}
-              validating={validatingBranchAddress === "company"}
-              issue={locationIssue?.target === "company" ? locationIssue.message : ""}
-              onAddressChange={(address) => updateBranchAddress("company", address)}
-              onUseCurrent={() => captureBranchLocation("company")}
-              onValidate={() => validateBranchAddress("company")}
-            />
-            <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
-          </form>
-        ) : (portalMode === "admin" && adminSection === "settings") || (isCompanyPortal && companyPortalSection === "settings") ? (
+        ) : routeSection === "configuracoes" && activeSettingsTab === "filiais" ? (
+          <div className="portal-stack">
+            <section className="admin-form-panel settings-branch-list">
+              <h2>Filiais da empresa</h2>
+              <ul>
+                {branches.map((branch) => (
+                  <li key={branch.id}>
+                    <span><strong>{branch.name}</strong><small>{formatDocument(branch.cnpj ?? "", detectDocumentKind(branch.cnpj)) || "Sem documento"} · {branch.is_active === false ? "Fora do catálogo" : "No catálogo"}</small></span>
+                    <span className="settings-branch-actions">
+                      <button className="admin-secondary" type="button" onClick={() => { setActiveBranchId(branch.id); goTo(sectionRouteFor("configuracoes", "dados")); }}>Dados</button>
+                      <button className="admin-secondary" type="button" onClick={() => { setActiveBranchId(branch.id); goTo(sectionRouteFor("loja")); }}>Abrir loja</button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+              <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}>
+                <h2>Nova filial</h2>
+                <div className="admin-form-grid">
+                  <label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label>
+                  <DocumentField label="Documento da filial" value={branchForm.cnpj} onChange={(cnpj) => setBranchForm({ ...branchForm, cnpj })} />
+                  <label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
+                </div>
+                <BranchCoverNoteEditor
+                  note={branchForm.coverNote}
+                  onNoteChange={(coverNote) => setBranchForm({ ...branchForm, coverNote })}
+                />
+                <BranchLocationPicker
+                  value={branchForm}
+                  locating={locatingBranchForm === "branch"}
+                  validating={validatingBranchAddress === "branch"}
+                  issue={locationIssue?.target === "branch" ? locationIssue.message : ""}
+                  onAddressChange={(address) => updateBranchAddress("branch", address)}
+                  onUseCurrent={() => captureBranchLocation("branch")}
+                  onValidate={() => validateBranchAddress("branch")}
+                />
+                <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div>
+              </form>
+          </div>
+        ) : routeSection === "configuracoes" && activeSettingsTab === "dados" ? (
+          activeBranch ? (
+            <BranchDetailsEditor branch={activeBranch} coverUrl={coverImagePreview || activeBranch.cover_image_url || ""} details={branchDetailsForm} businessHours={branchBusinessHours[activeBranch.id]} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onBusinessHoursChange={(config) => setBranchBusinessHours((current) => ({ ...current, [activeBranch.id]: config }))} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onSubmit={saveBranchDetails} />
+          ) : <p className="admin-muted">Nenhuma filial encontrada.</p>
+        ) : routeSection === "configuracoes" && routeNeedsSettings && settingsLoadedTenantId !== tenant.id ? (
+          loadingSettings || settingsRequestRef.current !== tenant.id ? <p className="admin-muted">Carregando configurações...</p> : (
+            <section className="admin-form-panel">
+              <p>Não foi possível carregar as configurações desta empresa. Nada foi alterado.</p>
+              <div className="admin-form-actions"><button className="admin-primary" type="button" onClick={() => void openCompanySettings(tenant.id)}><RefreshCw size={16} /> Tentar novamente</button></div>
+            </section>
+          )
+        ) : routeSection === "configuracoes" ? (
           <section className="company-settings-view">
-            <header className="company-settings-header">
-              <div className="company-settings-title">{portalMode === "admin" ? <button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button> : null}<span className="company-settings-logo" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt="" /> : tenant.name.trim().slice(0, 2).toUpperCase()}</span><div><span>{isCompanyPortal ? "Configurações da empresa" : "Gerenciar empresa"}</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"} · {companyIdentity.isActive ? "Empresa ativa" : "Empresa inativa"}</p></div></div>
-              {portalMode === "admin" ? <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div> : null}
-            </header>
-            <div className="company-settings-layout">
-              <CompanySettingsNav isCompanyPortal={isCompanyPortal} section={companySettingsSection} onChange={setCompanySettingsSection} />
-              <div className="company-settings-content">
+            <div className="company-settings-content">
                 {companySettingsSection === "overview" ? (
                   <div className="settings-overview">
-                    <section className="company-overview-banner">
-                      <div className="company-overview-icon" style={{ background: companyIdentity.themeColor }}>{companyIdentity.profileImageUrl ? <img src={companyIdentity.profileImageUrl} alt="" /> : <Building2 size={24} />}</div>
-                      <div><span>Visão geral</span><h2>{tenant.name}</h2><p>Informações centrais da empresa e das unidades vinculadas.</p></div>
-                    </section>
-                    <div className="settings-metric-grid">
-                      <div className="settings-metric"><Store size={19} /><span>Filiais</span><strong>{branches.length}</strong></div>
-                      <div className="settings-metric"><KeyRound size={19} /><span>Acesso principal</span><strong>{loadingSettings ? "Carregando" : accessForm.email || "Não configurado"}</strong></div>
-                      <div className="settings-metric"><Truck size={19} /><span>Regra de frete</span><strong>{companyCalculatesDeliveryFee ? companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "A combinar"}</strong></div>
-                      <div className="settings-metric"><Power size={19} /><span>Status público</span><strong>{companyIdentity.isActive ? "Ativa" : "Inativa"}</strong></div>
-                    </div>
+                    <dl className="settings-summary">
+                      <div><dt>Filiais</dt><dd>{branches.length}</dd></div>
+                      {portalMode === "admin" ? <div><dt>Acesso principal</dt><dd>{loadingSettings ? "Carregando..." : accessForm.email || "Não configurado"}</dd></div> : null}
+                      <div><dt>Taxa de entrega</dt><dd>{companyCalculatesDeliveryFee ? companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "A combinar"}</dd></div>
+                      <div><dt>Pedidos</dt><dd>{orderModeLabel(companyOrderMode)}</dd></div>
+                    </dl>
                     <CompanyAvailabilityPanel
                       companyName={tenant.name}
                       companyActive={companyIdentity.isActive}
@@ -3849,7 +4047,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                 ) : null}
                 {companySettingsSection === "identity" ? (
                   <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
-                    <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca da empresa</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
+                    <div className="settings-panel-heading"><h2>Marca</h2><p>Usada em todos os catálogos da empresa.</p></div>
                     <div className="company-profile-field">
                       <div className="company-profile-preview" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt={`Foto de ${tenant.name}`} /> : <Building2 size={30} />}</div>
                       <div><strong>Foto de perfil</strong><small>JPG, PNG ou WebP · máximo 5 MB</small><div className="company-profile-actions"><button className="admin-secondary" type="button" onClick={() => companyProfileInputRef.current?.click()} disabled={savingCompanyIdentity}><ImagePlus size={16} /> Escolher foto</button>{!companyProfileFile && companyIdentity.profileImageUrl ? <button className="icon-button" type="button" title="Remover foto" aria-label="Remover foto da empresa" onClick={removeCompanyProfileImage} disabled={savingCompanyIdentity}><Trash2 size={17} /></button> : null}</div><input ref={companyProfileInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCompanyProfileImage} /></div>
@@ -3859,9 +4057,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingCompanyIdentity}><Save size={16} /> {savingCompanyIdentity ? "Salvando..." : "Salvar identidade"}</button></div>
                   </form>
                 ) : null}
-                {companySettingsSection === "access" ? (
+                {companySettingsSection === "access" && isCompanyPortal ? (
+                  <CompanyPasswordForm email={session.user.email ?? ""} />
+                ) : companySettingsSection === "access" ? (
                   <form className="admin-form-panel company-settings-panel" onSubmit={saveCompanyAccess}>
-                    <div className="branch-form-heading"><div><span>Acesso principal</span><h2>E-mail e senha da empresa</h2><p>Este é o único acesso usado pela empresa para administrar todas as filiais.</p></div><KeyRound size={21} /></div>
+                    <div className="settings-panel-heading"><h2>Acesso da empresa</h2><p>Login usado pelo responsável para administrar todas as filiais.</p></div>
                     {loadingSettings ? <p className="admin-muted">Carregando configurações...</p> : <>
                       <label>Nome do responsável<input value={accessForm.name} onChange={(event) => setAccessForm({ ...accessForm, name: event.target.value })} required /></label>
                       <label>E-mail de acesso<input type="email" value={accessForm.email} onChange={(event) => setAccessForm({ ...accessForm, email: event.target.value })} required /></label>
@@ -3870,9 +4070,11 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     </>}
                   </form>
                 ) : null}
-                {companySettingsSection === "parameters" && !isCompanyPortal ? (
+                {companySettingsSection === "parameters" ? (
                   <ParameterWorkspace
+                    key={tenant.id}
                     tenant={tenant}
+                    isCompanyPortal={isCompanyPortal}
                     branches={branches}
                     activeBranchId={activeBranchId}
                     scope={parameterScope}
@@ -3924,75 +4126,76 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
                     onDownloadPrintAgentInstaller={(branch) => void downloadPrintAgentInstaller(branch)}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
+                    onDiscard={() => openCompanySettings(tenant.id)}
                   />
                 ) : null}
                 {companySettingsSection === "danger" ? (
                   <section className="admin-form-panel company-settings-panel danger-zone">
-                    <div className="branch-form-heading"><div><span>Zona de exclusão</span><h2>Excluir empresa</h2><p>Remove definitivamente a empresa, todas as filiais, produtos, integrações, pedidos e o acesso principal.</p></div><TriangleAlert size={22} /></div>
+                    <div className="settings-panel-heading"><h2>Excluir empresa</h2><p>Remove definitivamente a empresa, as filiais, os produtos, os pedidos e o acesso. Não dá para desfazer.</p></div>
                     {showDeleteCompany ? <>
                       <label>Digite <strong>{tenant.name}</strong> para confirmar<input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} autoComplete="off" /></label>
                       <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => { setShowDeleteCompany(false); setDeleteConfirmation(""); }}>Cancelar</button><button className="admin-danger" type="button" disabled={deletingCompany || deleteConfirmation.trim() !== tenant.name} onClick={deleteCompany}><Trash2 size={16} /> {deletingCompany ? "Excluindo..." : "Excluir definitivamente"}</button></div>
                     </> : <button className="admin-danger" type="button" onClick={() => setShowDeleteCompany(true)}><Trash2 size={16} /> Excluir empresa</button>}
                   </section>
                 ) : null}
-              </div>
             </div>
           </section>
         ) : (
           <>
-            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{portalMode !== "branch" ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}{portalMode !== "admin" ? <a className="admin-secondary" href="/pedidos"><ClipboardList size={16} /> Pedidos</a> : null}<button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, portalMode === "admin" ? tenant.id : undefined)}><RefreshCw size={16} /> Atualizar</button></div></section>
-            {portalMode !== "branch" && showBranchForm ? (
-              <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}>
-                <div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div>
-                <div className="admin-form-grid">
-                  <label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label>
-                  <label>CNPJ da filial<input value={branchForm.cnpj} onChange={(event) => setBranchForm({ ...branchForm, cnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
-                  <label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
-                </div>
-                <BranchCoverNoteEditor
-                  note={branchForm.coverNote}
-                  onNoteChange={(coverNote) => setBranchForm({ ...branchForm, coverNote })}
-                />
-                <BranchLocationPicker
-                  value={branchForm}
-                  locating={locatingBranchForm === "branch"}
-                  validating={validatingBranchAddress === "branch"}
-                  issue={locationIssue?.target === "branch" ? locationIssue.message : ""}
-                  onAddressChange={(address) => updateBranchAddress("branch", address)}
-                  onUseCurrent={() => captureBranchLocation("branch")}
-                  onValidate={() => validateBranchAddress("branch")}
-                />
-                <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div>
-              </form>
-            ) : null}
-            {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} coverUrl={coverImagePreview || activeBranch.cover_image_url || ""} details={branchDetailsForm} businessHours={branchBusinessHours[activeBranch.id] ?? createDefaultBusinessHours()} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onBusinessHoursChange={(config) => setBranchBusinessHours((current) => ({ ...current, [activeBranch.id]: config }))} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
-            <section className="catalog-media-panel">
-              <div className="branch-cover-preview">
-                {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
-              </div>
-              <div className="catalog-media-copy"><span>Capa da filial</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>JPG, PNG ou WebP · máximo 5 MB</small></div>
-              <div className="catalog-media-actions">
-                <button className="admin-secondary" type="button" onClick={() => coverImageInputRef.current?.click()} disabled={!activeBranchId || uploadingCover}><ImagePlus size={16} /> Escolher foto</button>
-                {coverImageFile ? <button className="admin-primary" type="button" onClick={saveBranchCover} disabled={uploadingCover}><Save size={16} /> {uploadingCover ? "Enviando..." : "Salvar capa"}</button> : null}
-                {!coverImageFile && activeBranch?.cover_image_url ? <button className="icon-button cover-remove-button" type="button" title="Remover capa" aria-label="Remover capa" onClick={removeBranchCover} disabled={uploadingCover}><Trash2 size={17} /></button> : null}
-                <input ref={coverImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCoverImage} />
-              </div>
-            </section>
-            <section className="catalog-import-panel">
-              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Planilha do catálogo</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>{activeProductCount} ativo(s) de {products.length} produto(s) · {categories.length} categoria(s)</small></div></div>
-              <div className="catalog-import-actions">
-                <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Download size={16} /> {exportingCatalog ? "Exportando..." : "Exportar catálogo"}</button>
-                <button className="admin-primary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar Excel"}</button>
+            <StoreEditor
+              companyName={tenant.name}
+              branchName={activeBranch?.name ?? ""}
+              themeColor={companyThemeColor(tenant.theme_color)}
+              logoUrl={tenant.profile_image_url ?? null}
+              coverUrl={coverImagePreview || activeBranch?.cover_image_url || null}
+              coverPending={Boolean(coverImageFile)}
+              savingCover={uploadingCover}
+              savingLogo={savingCompanyLogo}
+              canEditLogo={!isBranchPortal}
+              categories={categories}
+              products={editorProducts}
+              imageLimit={activeProductImageLimit}
+              busyProductId={updatingProductStatusId || deletingProductId || uploadingProductImageId}
+              catalogLayout={editorCatalogLayout}
+              publicUrl={activeBranch ? branchOrderPath(activeBranch, "whatsapp") : "/"}
+              settingsHref={portalPath(portalMode, sectionRouteFor("configuracoes", "dados"))}
+              onOpenSettings={() => goTo(sectionRouteFor("configuracoes", "dados"))}
+              tools={<>
+                <button className="admin-secondary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar planilha"}</button>
+                <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Download size={16} /> {exportingCatalog ? "Exportando..." : "Exportar planilha"}</button>
+              </>}
+              onPickCover={() => coverImageInputRef.current?.click()}
+              onSaveCover={() => void saveBranchCover()}
+              onCancelCover={() => { setCoverImageFile(null); setCoverImagePreview(""); if (coverImageInputRef.current) coverImageInputRef.current.value = ""; }}
+              onRemoveCover={() => { if (window.confirm("Remover a capa da loja?")) void removeBranchCover(); }}
+              onPickLogo={() => companyLogoInputRef.current?.click()}
+              onAddProduct={(categoryId) => openNewProductEditor(categoryId)}
+              onEditProduct={(productId) => { const product = findProduct(productId); if (product) editProduct(product); }}
+              onDeleteProduct={(productId) => { const product = findProduct(productId); if (product) void deleteProduct(product); }}
+              onToggleProduct={(productId) => { const product = findProduct(productId); if (product) void toggleProductStatus(product); }}
+              onAddPhoto={(productId) => openQuickProductImage(productId)}
+              onQuickUpdate={updateProductQuick}
+              onAddCategory={openCategoryEditor}
+              onDeleteCategory={(categoryId) => { const category = categories.find((item) => item.id === categoryId); if (category) void deleteCategory(category); }}
+            />
                 <input ref={importInputRef} className="catalog-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={importCatalog} />
-              </div>
-            </section>
-            <section className="catalog-management-bar">
-              <div className="catalog-management-copy"><span>Cadastro manual</span><strong>Produtos e categorias</strong></div>
-              <div className="catalog-management-actions"><button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
-                {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
-                {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
-              </button>{showAdditionGroupsCatalog ? <button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button> : null}</div>
+                <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
+            <input ref={coverImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCoverImage} />
+            <input ref={companyLogoInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={replaceCompanyLogo} />
+            <section className="store-editor-extras" aria-label="Adicionais e unidades de medida">
+               {showAdditionGroupsCatalog ? <section className="admin-form-panel catalog-structure-panel addition-groups-overview-panel">
+                  <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
+                  <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
+                 <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div className="catalog-entity-info"><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
+               </section> : null}
+               <section className="admin-form-panel catalog-structure-panel measurement-units-overview-panel">
+                 <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={18} /></button></div>
+                 <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
+                 <div className="admin-list catalog-scroll-list measurement-unit-list">
+                    {visibleMeasurementUnits.map(renderMeasurementUnitRow)}
+                   {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
+                 </div>
+               </section>
             </section>
             {showOptionGroupForm ? (
               <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOptionGroupForm(false); }}>
@@ -4009,7 +4212,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
               </section>
               </div>
             ) : null}
-            {optionGroups.length ? <section className="admin-form-panel option-groups-panel"><h2>Grupos de opcionais <span className="count-badge">{optionGroups.length}</span></h2><div className="admin-list">{optionGroups.map((group) => { const linkedProducts = (group.product_option_groups ?? []).map((link) => products.find((product) => product.id === link.product_id)?.name).filter(Boolean); return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections === 0 ? "Opcional" : `Escolha no mínimo ${group.min_selections}`} · até {group.max_selections} · {group.option_group_items?.length ?? 0} item(ns)</small><small>Produtos: {linkedProducts.join(", ") || "nenhum"}</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}</div></section> : null}
             {catalogEditorMode ? (
               <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCatalogEditor(); }}>
               <section className="admin-form-panel catalog-editor-panel catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-editor-title">
@@ -4039,69 +4241,6 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
               </section>
               </div>
             ) : null}
-            <div className="admin-columns catalog-overview">
-              <section className="admin-form-panel catalog-structure-panel category-overview-panel">
-                 <div className="catalog-panel-heading"><h2>Categorias <span className="count-badge">{categories.length}</span></h2><button className="icon-button" type="button" title="Adicionar categoria" aria-label="Adicionar categoria" onClick={openCategoryEditor}><Plus size={18} /></button></div>
-                 <label className="catalog-panel-search"><Search size={16} /><input value={categoryQuery} onChange={(event) => setCategoryQuery(event.target.value)} placeholder="Pesquisar categoria" /></label>
-                 <div className="admin-list catalog-scroll-list">{visibleCategories.map((category) => {
-                  const linkedProductCount = productCountByCategoryId.get(category.id) ?? 0;
-                  const canDelete = linkedProductCount === 0;
-                   return <div className="admin-list-row category-admin-row" key={category.id}><div className="catalog-entity-info"><strong>{category.name}</strong><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
-                 })}{!visibleCategories.length ? <p className="admin-muted">Nenhuma categoria encontrada.</p> : null}</div>
-               </section>
-               {showAdditionGroupsCatalog ? <section className="admin-form-panel catalog-structure-panel addition-groups-overview-panel">
-                  <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
-                  <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
-                 <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div className="catalog-entity-info"><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
-               </section> : null}
-               <section className="admin-form-panel catalog-structure-panel measurement-units-overview-panel">
-                 <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={18} /></button></div>
-                 <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
-                 <div className="admin-list catalog-scroll-list measurement-unit-list">
-                    {visibleMeasurementUnits.map(renderMeasurementUnitRow)}
-                   {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
-                 </div>
-               </section>
-               <section className="admin-form-panel products-overview-panel">
-                 <div className="catalog-panel-heading"><h2>Produtos da filial <span className="count-badge">{products.length}</span></h2><button className="icon-button" type="button" title="Adicionar produto" aria-label="Adicionar produto" onClick={openNewProductEditor}><Plus size={18} /></button></div>
-                 <label className="catalog-panel-search"><Search size={16} /><input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="Pesquisar produto" /></label>
-                 <div className="product-admin-list catalog-scroll-list">
-                   {visibleProducts.map((product) => {
-                    const isBusy = Boolean(uploadingProductImageId || updatingProductStatusId || deletingProductId);
-                    const updatedAtLabel = formatAdminProductUpdatedAt(product.updated_at);
-                    return (
-                      <div className={product.is_active ? "product-admin-row" : "product-admin-row inactive"} key={product.id}>
-                        <div className="product-admin-info">
-                          <div className="product-admin-name">
-                            <strong>{product.name}</strong>
-                            <span className={product.is_active ? "product-status-badge active" : "product-status-badge inactive"}>{product.is_active ? "Ativo" : "Inativo"}</span>
-                          </div>
-                          <small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s){product.option_groups?.length ? ` · ${product.option_groups.length} grupo(s) de opcionais` : ""}</small>
-                          <span className="product-admin-updated"><RefreshCw size={12} /> Última atualização: {updatedAtLabel ?? "sem registro"}</span>
-                        </div>
-                        <div className="product-admin-actions">
-                          <button
-                            className="product-status-toggle"
-                            type="button"
-                            role="switch"
-                            aria-checked={product.is_active}
-                            aria-label={`${product.is_active ? "Desativar" : "Ativar"} ${product.name}`}
-                            title={product.is_active ? "Desativar produto" : "Ativar produto"}
-                            disabled={isBusy}
-                            onClick={() => toggleProductStatus(product)}
-                          ><span /></button>
-                          <button className="product-photo-button" type="button" title="Adicionar fotos" aria-label={`Adicionar fotos de ${product.name}`} disabled={isBusy || (product.product_images?.length ?? 0) >= activeProductImageLimit} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button>
-                          <button className="product-edit-button" type="button" title="Editar produto e fotos" aria-label={`Editar ${product.name}`} disabled={isBusy} onClick={() => editProduct(product)}><Pencil size={17} /></button>
-                          <button className="product-delete-button" type="button" title="Excluir definitivamente" aria-label={`Excluir definitivamente ${product.name}`} disabled={isBusy} onClick={() => deleteProduct(product)}><Trash2 size={17} /></button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                   {!visibleProducts.length ? <p className="admin-muted">Nenhum produto encontrado.</p> : null}
-                </div>
-                <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
-              </section>
-            </div>
           </>
         )}
         {showMeasurementUnitForm ? (
@@ -4117,51 +4256,43 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
           </div>
         ) : null}
         {message ? <p className="admin-message admin-console-message">{message}</p> : null}
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
   );
 }
 
-function PlatformAdminSidebar({
-  section,
-  companyCount,
-  onCompanies,
-  onNew,
-}: {
-  section: "companies" | "new" | "catalog" | "settings";
-  companyCount: number;
-  onCompanies: () => void;
-  onNew: () => void;
-}) {
-  return (
-    <aside className="admin-console-sidebar">
-      <div className="admin-sidebar-brand"><LiistBrand compact context="Administração" /></div>
-      <nav className="admin-sidebar-nav" aria-label="Navegação administrativa">
-        <button aria-current={section !== "new" ? "page" : undefined} className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
-        <button aria-current={section === "new" ? "page" : undefined} className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
-      </nav>
-    </aside>
-  );
-}
+function CompanyPasswordForm({ email }: { email: string }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ status: "success" | "error"; message: string } | null>(null);
+  const isMismatch = Boolean(confirmation) && password !== confirmation;
 
-function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyPortal: boolean; section: CompanySettingsSection; onChange: (section: CompanySettingsSection) => void }) {
-  const options: Array<{ id: CompanySettingsSection; label: string; icon: typeof Settings }> = [
-    { id: "overview", label: "Resumo", icon: LayoutDashboard },
-    { id: "identity", label: "Identidade", icon: Palette },
-    ...(isCompanyPortal ? [] : [{ id: "access" as const, label: "Acesso", icon: KeyRound }]),
-    ...(isCompanyPortal ? [] : [{ id: "parameters" as const, label: "Parâmetros", icon: SlidersHorizontal }]),
-    ...(isCompanyPortal ? [] : [{ id: "danger" as const, label: "Exclusão", icon: TriangleAlert }]),
-  ];
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || isSaving || isMismatch) return;
+    setIsSaving(true);
+    setFeedback(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setIsSaving(false);
+    if (error) {
+      setFeedback({ status: "error", message: error.message });
+      return;
+    }
+    setPassword("");
+    setConfirmation("");
+    setFeedback({ status: "success", message: "Senha alterada. Use a nova senha no próximo login." });
+  }
 
   return (
-    <nav className="company-settings-nav" aria-label="Configurações da empresa">
-      {options.map((option) => {
-        const Icon = option.icon;
-        return <button aria-current={section === option.id ? "page" : undefined} className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
-      })}
-    </nav>
+    <form className="admin-form-panel company-settings-panel" onSubmit={submit}>
+      <div className="settings-panel-heading"><h2>Senha</h2><p>Login atual: {email}. Para trocar o e-mail, fale com o suporte.</p></div>
+      <label>Nova senha<input type="password" autoComplete="new-password" minLength={6} value={password} onChange={(event) => { setPassword(event.target.value); setFeedback(null); }} required /></label>
+      <label>Confirme a nova senha<input type="password" autoComplete="new-password" minLength={6} value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setFeedback(null); }} aria-invalid={isMismatch} required /></label>
+      {isMismatch ? <p className="field-error" role="alert">As senhas não conferem.</p> : <small className="admin-muted">Mínimo de 6 caracteres.</small>}
+      {feedback ? <p className={`identity-save-feedback ${feedback.status}`} role={feedback.status === "error" ? "alert" : "status"}>{feedback.message}</p> : null}
+      <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={isSaving || isMismatch}>{isSaving ? "Salvando..." : "Alterar senha"}</button></div>
+    </form>
   );
 }
 
@@ -4182,7 +4313,7 @@ function CompanyAvailabilityPanel({
 }) {
   return (
     <section className="admin-form-panel company-availability-panel">
-      <div className="branch-form-heading"><div><span>Disponibilidade pública</span><h2>Empresa e filiais</h2><p>Controle o que aparece no catálogo sem excluir nenhum dado.</p></div><Power size={21} /></div>
+      <div className="settings-panel-heading"><h2>Visível no catálogo</h2><p>Desativar oculta do catálogo público sem apagar dados.</p></div>
       <div className={companyActive ? "company-availability-master active" : "company-availability-master inactive"}>
         <span className="availability-master-icon"><Building2 size={20} /></span>
         <div><strong>{companyName}</strong><small>{companyActive ? "A empresa está disponível e respeita o status de cada filial." : "A empresa inteira está oculta, incluindo todas as filiais."}</small></div>
@@ -4330,7 +4461,7 @@ function BranchDetailsEditor({
   branch: Branch;
   coverUrl: string;
   details: BranchDetailsForm;
-  businessHours: BusinessHoursConfig;
+  businessHours?: BusinessHoursConfig;
   location: BranchLocationValue;
   locating: boolean;
   validatingLocation: boolean;
@@ -4341,16 +4472,16 @@ function BranchDetailsEditor({
   onAddressChange: (address: string) => void;
   onCaptureLocation: () => void;
   onValidateLocation: () => void;
-  onClose: () => void;
+  onClose?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <form className="admin-form-panel branch-details-panel" onSubmit={onSubmit}>
-      <div className="branch-form-heading"><div><span>Dados da filial</span><h2>{branch.name}</h2><p>Informações exibidas no catálogo e usadas nos pedidos.</p></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar dados da filial" onClick={onClose}><X size={18} /></button></div>
+      <div className="branch-form-heading"><div><span>Dados da filial</span><h2>{branch.name}</h2><p>Informações exibidas no catálogo e usadas nos pedidos.</p></div>{onClose ? <button className="icon-button" type="button" title="Fechar" aria-label="Fechar dados da filial" onClick={onClose}><X size={18} /></button> : null}</div>
       <ParameterToggle checked={details.isActive} title="Filial ativa no catálogo público" description={details.isActive ? "A filial está disponível para receber pedidos." : "A filial fica oculta até ser reativada."} onChange={(isActive) => onDetailsChange({ ...details, isActive })} />
       <div className="admin-form-grid">
         <label>Nome da filial<input value={details.name} onChange={(event) => onDetailsChange({ ...details, name: event.target.value })} required /></label>
-        <label>CNPJ<input value={details.cnpj} onChange={(event) => onDetailsChange({ ...details, cnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
+        <DocumentField label="Documento" value={details.cnpj} onChange={(cnpj) => onDetailsChange({ ...details, cnpj })} />
         <label>WhatsApp<input value={details.phone} onChange={(event) => onDetailsChange({ ...details, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
       </div>
       <BranchCoverNoteEditor
@@ -4363,7 +4494,7 @@ function BranchDetailsEditor({
           <Clock size={18} />
           <span><strong>Horário de funcionamento</strong><small>Usado para exibir o status da loja no catálogo.</small></span>
         </div>
-        <BusinessHoursEditor branchName={branch.name} config={businessHours} onChange={onBusinessHoursChange} />
+        {businessHours ? <BusinessHoursEditor branchName={branch.name} config={businessHours} onChange={onBusinessHoursChange} /> : <p className="admin-muted">Carregando o horário salvo... Se não aparecer, o horário atual não será alterado ao salvar.</p>}
       </section>
       <BranchLocationPicker value={location} locating={locating} validating={validatingLocation} issue={issue} onAddressChange={onAddressChange} onUseCurrent={onCaptureLocation} onValidate={onValidateLocation} />
       <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving || locating || validatingLocation}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
@@ -4428,11 +4559,58 @@ function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode })
   );
 }
 
+type ChoiceOption<T extends string> = { value: T; label: string };
+
+const ORDER_MODE_OPTIONS: Array<ChoiceOption<OrderMode>> = [
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "internal", label: "Comanda interna" },
+  { value: "both", label: "Ambos" },
+];
+const PRINT_MODE_OPTIONS: Array<ChoiceOption<PrintMode>> = [
+  { value: "disabled", label: "Desativada" },
+  { value: "manual", label: "Manual" },
+  { value: "automatic", label: "Automática" },
+  { value: "manual_and_automatic", label: "Manual + automática" },
+];
+const DELIVERY_FEE_TYPE_OPTIONS: Array<ChoiceOption<DeliveryFeeType>> = [
+  { value: "fixed", label: "Taxa fixa" },
+  { value: "per_km", label: "Por km" },
+];
+const CATALOG_LAYOUT_OPTIONS: Array<ChoiceOption<CatalogLayout>> = [
+  { value: "horizontal", label: "Foto ao lado" },
+  { value: "showcase", label: "Foto acima (vitrine)" },
+];
+
+function catalogLayoutLabel(layout: CatalogLayout) {
+  return CATALOG_LAYOUT_OPTIONS.find((option) => option.value === layout)?.label ?? "Foto ao lado";
+}
+
+function deliveryFeeTypeLabel(type: DeliveryFeeType) {
+  return type === "per_km" ? "Por km" : "Taxa fixa";
+}
+
+function inheritOption<T extends string>(inheritedLabel: string): ChoiceOption<T | "inherit"> {
+  return { value: "inherit", label: `Padrão da empresa (${inheritedLabel})` };
+}
+
+function booleanOptions(onLabel: string, offLabel: string): Array<ChoiceOption<"enabled" | "disabled">> {
+  return [
+    { value: "enabled", label: onLabel },
+    { value: "disabled", label: offLabel },
+  ];
+}
+
+function overrideCountLabel(count: number) {
+  if (!count) return "";
+  return count === 1 ? "1 filial usa valor próprio" : `${count} filiais usam valor próprio`;
+}
+
 function ParameterWorkspace({
   tenant,
   branches,
   activeBranchId,
   scope,
+  isCompanyPortal,
   companyEnabled,
   branchModes,
   companyDeliveryFeeType,
@@ -4481,11 +4659,13 @@ function ParameterWorkspace({
   onDownloadPrintAgentInstaller,
   onSaveCompany,
   onSaveBranch,
+  onDiscard,
 }: {
   tenant: Tenant;
   branches: Branch[];
   activeBranchId: string;
   scope: ParameterScope;
+  isCompanyPortal: boolean;
   companyEnabled: boolean;
   branchModes: Record<string, FreightParameterMode>;
   companyDeliveryFeeType: DeliveryFeeType;
@@ -4532,335 +4712,451 @@ function ParameterWorkspace({
   onBranchPrintModeChange: (branchId: string, mode: BranchPrintMode) => void;
   onBranchBusinessHoursChange: (branchId: string, config: BusinessHoursConfig) => void;
   onDownloadPrintAgentInstaller: (branch: Branch) => void;
-  onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
-  onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveCompany: () => Promise<boolean>;
+  onSaveBranch: () => Promise<boolean>;
+  onDiscard: () => Promise<void>;
 }) {
-  const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null;
-  const activeMode = activeBranch ? branchModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
-  const activeDeliveryFeeTypeMode = activeBranch ? branchDeliveryFeeTypeModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeDeliveryFeeType = activeDeliveryFeeTypeMode === "inherit" ? companyDeliveryFeeType : activeDeliveryFeeTypeMode;
-  const activeLayoutMode = activeBranch ? branchCatalogLayouts[activeBranch.id] ?? "inherit" : "inherit";
-  const activeCatalogLayout = activeLayoutMode === "inherit" ? companyCatalogLayout : activeLayoutMode;
-  const activeImageLimitMode = activeBranch ? branchProductImageLimits[activeBranch.id] ?? "inherit" : "inherit";
-  const activeImageLimit = activeImageLimitMode === "inherit" ? companyProductImageLimit : activeImageLimitMode;
-  const activeStockControlMode = activeBranch ? branchStockControlModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeStockControl = activeStockControlMode === "inherit" ? companyControlsStock : activeStockControlMode === "enabled";
-  const activeAdditionsMode = activeBranch ? branchAdditionsModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeAdditions = activeAdditionsMode === "inherit" ? companyEnablesAdditions : activeAdditionsMode === "enabled";
-  const activeOrderMode = activeBranch ? branchOrderModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeOrderModeValue = activeOrderMode === "inherit" ? companyOrderMode : activeOrderMode;
-  const activeCompactInternalCatalogMode = activeBranch ? branchCompactInternalCatalogModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activeCompactInternalCatalog = activeCompactInternalCatalogMode === "inherit" ? companyCompactInternalCatalog : activeCompactInternalCatalogMode === "enabled";
-  const activePrintMode = activeBranch ? branchPrintModes[activeBranch.id] ?? "inherit" : "inherit";
-  const activePrintModeValue = activePrintMode === "inherit" ? companyPrintMode : activePrintMode;
-  const activeBusinessHours = activeBranch ? branchBusinessHours[activeBranch.id] ?? createDefaultBusinessHours() : createDefaultBusinessHours();
-  const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedStockControlBranchCount = branches.filter((branch) => (branchStockControlModes[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedAdditionsBranchCount = branches.filter((branch) => (branchAdditionsModes[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedOrderModeBranchCount = branches.filter((branch) => (branchOrderModes[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedCompactInternalCatalogBranchCount = branches.filter((branch) => (branchCompactInternalCatalogModes[branch.id] ?? "inherit") === "inherit").length;
-  const inheritedPrintModeBranchCount = branches.filter((branch) => (branchPrintModes[branch.id] ?? "inherit") === "inherit").length;
-  const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
+  const [isDirty, setIsDirty] = useState(false);
+  const activeBranch = scope === "branch" ? branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null : null;
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [isDirty]);
+
+  function edited<Args extends unknown[]>(callback: (...args: Args) => void) {
+    return (...args: Args) => {
+      setIsDirty(true);
+      callback(...args);
+    };
+  }
+
+  async function changeScope(nextScope: "company" | string) {
+    const isSameScope = nextScope === "company" ? scope === "company" : scope === "branch" && activeBranch?.id === nextScope;
+    if (isSameScope) return;
+    if (isDirty) {
+      if (!window.confirm("Existem alterações não salvas. Deseja descartá-las?")) return;
+      await onDiscard();
+      setIsDirty(false);
+    }
+    if (nextScope === "company") onScopeChange("company");
+    else onBranchChange(nextScope);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const saved = scope === "company" ? await onSaveCompany() : await onSaveBranch();
+    if (saved) setIsDirty(false);
+  }
+
+  async function discard() {
+    await onDiscard();
+    setIsDirty(false);
+  }
+
+  const countOverrides = (modes: Record<string, unknown>) => branches.filter((branch) => (modes[branch.id] ?? "inherit") !== "inherit").length;
+  const scopeTabs = (
+    <div className="settings-scope" role="tablist" aria-label="Configurar">
+      <button type="button" role="tab" aria-selected={scope === "company"} className={scope === "company" ? "active" : ""} onClick={() => void changeScope("company")}>Padrão da empresa</button>
+      {branches.map((branch) => (
+        <button type="button" role="tab" key={branch.id} aria-selected={activeBranch?.id === branch.id} className={activeBranch?.id === branch.id ? "active" : ""} onClick={() => void changeScope(branch.id)}>{branch.name}</button>
+      ))}
+    </div>
+  );
+
+  if (loading) {
+    return <section className="settings-workspace">{scopeTabs}<p className="admin-muted">Carregando parâmetros...</p></section>;
+  }
+
+  const scopeHint = scope === "company"
+    ? "Valores usados por todas as filiais, exceto onde a filial tiver valor próprio."
+    : `Valores de ${activeBranch?.name ?? "filial"}. Use "Padrão da empresa" para seguir ${tenant.name}.`;
 
   return (
-    <section className="parameter-workspace">
-      <div className="parameter-scope-control">
-        <div className="parameter-scope-copy">
-          <span className={scope === "company" ? "parameter-scope-icon company" : "parameter-scope-icon branch"}>{scope === "company" ? <Building2 size={20} /> : <Store size={20} />}</span>
-          <span><small>{scope === "company" ? "Padrão da empresa" : "Configuração da filial"}</small><strong>{scopeName}</strong></span>
-        </div>
-        <label><span>Aplicar parâmetros em</span><select aria-label="Aplicar parâmetros em" value={scope === "company" ? "company" : activeBranch?.id ?? "company"} onChange={(event) => event.target.value === "company" ? onScopeChange("company") : onBranchChange(event.target.value)}><option value="company">Empresa: {tenant.name}</option><optgroup label="Filiais">{branches.map((branch) => <option value={branch.id} key={branch.id}>Filial: {branch.name}</option>)}</optgroup></select></label>
-      </div>
-      <div className="parameter-editor">
-        {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
-          <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>{scope === "company" ? "8" : "9"} parâmetros</span></header>
-            {scope === "company" ? (
-              <>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · Padrão da empresa</small></span><strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
-                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset" disabled={!companyEnabled}>
-                      <legend>Forma de cálculo padrão</legend>
-                      <div className="parameter-mode-options parameter-layout-options two">
-                        <label className={companyDeliveryFeeType === "fixed" ? "selected" : ""}><input type="radio" name="company-delivery-fee-type" value="fixed" checked={companyDeliveryFeeType === "fixed"} onChange={() => onCompanyDeliveryFeeTypeChange("fixed")} /><Truck size={18} /><span><strong>Taxa fixa</strong><small>Soma o mesmo valor em qualquer entrega</small></span></label>
-                        <label className={companyDeliveryFeeType === "per_km" ? "selected" : ""}><input type="radio" name="company-delivery-fee-type" value="per_km" checked={companyDeliveryFeeType === "per_km"} onChange={() => onCompanyDeliveryFeeTypeChange("per_km")} /><MapPin size={18} /><span><strong>Valor por km</strong><small>Distância × preço por quilômetro</small></span></label>
-                      </div>
-                    </fieldset>
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Afeta somente filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Plus size={19} /></span><span className="parameter-item-name"><strong>Adicionais</strong><small>Produtos - Padrão da empresa</small></span><strong className={companyEnablesAdditions ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnablesAdditions ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <ParameterToggle checked={companyEnablesAdditions} title="Permitir adicionais nos produtos" description="Quando desativado, os adicionais não aparecem no catálogo do cliente." onChange={onCompanyEnablesAdditionsChange} />
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedAdditionsBranchCount} {inheritedAdditionsBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedAdditionsBranchCount > 0 ? `${branches.length - inheritedAdditionsBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Controla a disponibilidade dos grupos de adicionais.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · Padrão da empresa</small></span><strong className="parameter-value-badge">{orderModeLabel(companyOrderMode)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Como os pedidos serão enviados</legend>
-                      <div className="parameter-mode-options parameter-layout-options">
-                        <label className={companyOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="company-order-mode" value="whatsapp" checked={companyOrderMode === "whatsapp"} onChange={() => onCompanyOrderModeChange("whatsapp")} /><MessageSquareText size={18} /><span><strong>WhatsApp</strong><small>Envia a comanda para a loja</small></span></label>
-                        <label className={companyOrderMode === "internal" ? "selected" : ""}><input type="radio" name="company-order-mode" value="internal" checked={companyOrderMode === "internal"} onChange={() => onCompanyOrderModeChange("internal")} /><ClipboardList size={18} /><span><strong>Comanda interna</strong><small>Envia para o painel de pedidos</small></span></label>
-                        <label className={companyOrderMode === "both" ? "selected" : ""}><input type="radio" name="company-order-mode" value="both" checked={companyOrderMode === "both"} onChange={() => onCompanyOrderModeChange("both")} /><SlidersHorizontal size={18} /><span><strong>Ambos</strong><small>Um link para cada operação</small></span></label>
-                      </div>
-                    </fieldset>
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedOrderModeBranchCount} {inheritedOrderModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedOrderModeBranchCount > 0 ? `${branches.length - inheritedOrderModeBranchCount} com modo próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Define os destinos disponíveis para novos pedidos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Visual interno</strong><small>Mesa e equipe · Padrão da empresa</small></span><strong className={companyCompactInternalCatalog ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyCompactInternalCatalog ? "Compacto" : "Completo"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <ParameterToggle checked={companyCompactInternalCatalog} title="Usar visual compacto em comandas internas" description="Nos links de mesa e equipe, mantém só capa e foto de perfil antes dos produtos." onChange={onCompanyCompactInternalCatalogChange} />
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedCompactInternalCatalogBranchCount} {inheritedCompactInternalCatalogBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedCompactInternalCatalogBranchCount > 0 ? `${branches.length - inheritedCompactInternalCatalogBranchCount} com visual próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Afeta somente os links internos de mesa e equipe.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon print"><Printer size={19} /></span><span className="parameter-item-name"><strong>Configurações de impressão</strong><small>Comanda interna · Padrão da empresa</small></span><strong className="parameter-value-badge">{printModeLabel(companyPrintMode)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Saída da comanda interna</legend>
-                      <div className="parameter-mode-options parameter-print-options">
-                        <label className={companyPrintMode === "disabled" ? "selected" : ""}><input type="radio" name="company-print-mode" value="disabled" checked={companyPrintMode === "disabled"} onChange={() => onCompanyPrintModeChange("disabled")} /><X size={18} /><span><strong>Desativada</strong><small>Sem fila de impressão</small></span></label>
-                        <label className={companyPrintMode === "manual" ? "selected" : ""}><input type="radio" name="company-print-mode" value="manual" checked={companyPrintMode === "manual"} onChange={() => onCompanyPrintModeChange("manual")} /><Printer size={18} /><span><strong>Manual</strong><small>Botão para imprimir ou reimprimir</small></span></label>
-                        <label className={companyPrintMode === "automatic" ? "selected" : ""}><input type="radio" name="company-print-mode" value="automatic" checked={companyPrintMode === "automatic"} onChange={() => onCompanyPrintModeChange("automatic")} /><RefreshCw size={18} /><span><strong>Automática</strong><small>Agente local imprime ao receber</small></span></label>
-                        <label className={companyPrintMode === "manual_and_automatic" ? "selected" : ""}><input type="radio" name="company-print-mode" value="manual_and_automatic" checked={companyPrintMode === "manual_and_automatic"} onChange={() => onCompanyPrintModeChange("manual_and_automatic")} /><SlidersHorizontal size={18} /><span><strong>Ambas</strong><small>Imprime automático e permite reimprimir</small></span></label>
-                      </div>
-                    </fieldset>
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedPrintModeBranchCount} {inheritedPrintModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedPrintModeBranchCount > 0 ? `${branches.length - inheritedPrintModeBranchCount} com impressão própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Usado somente em pedidos por comanda interna.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon stock"><Package size={19} /></span><span className="parameter-item-name"><strong>Controle de estoque</strong><small>Produtos · Padrão da empresa</small></span><strong className={companyControlsStock ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyControlsStock ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <ParameterToggle checked={companyControlsStock} title="Controlar estoque dos produtos" description="Quando desativado, o estoque não aparece no cadastro nem no Excel." onChange={onCompanyControlsStockChange} />
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedStockControlBranchCount} {inheritedStockControlBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedStockControlBranchCount > 0 ? `${branches.length - inheritedStockControlBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Define campos e colunas de estoque nas filiais.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Layout do catálogo</strong><small>Visual · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyCatalogLayout === "horizontal" ? "Horizontal" : "Vitrine"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset">
-                      <legend>Apresentação dos produtos</legend>
-                      <div className="parameter-mode-options parameter-layout-options two">
-                        <label className={companyCatalogLayout === "horizontal" ? "selected" : ""}><input type="radio" name="company-catalog-layout" value="horizontal" checked={companyCatalogLayout === "horizontal"} onChange={() => onCompanyCatalogLayoutChange("horizontal")} /><LayoutDashboard size={18} /><span><strong>Horizontal</strong><small>Foto ao lado das informações</small></span></label>
-                        <label className={companyCatalogLayout === "showcase" ? "selected" : ""}><input type="radio" name="company-catalog-layout" value="showcase" checked={companyCatalogLayout === "showcase"} onChange={() => onCompanyCatalogLayoutChange("showcase")} /><ImagePlus size={18} /><span><strong>Vitrine</strong><small>Foto acima do nome do produto</small></span></label>
-                      </div>
-                    </fieldset>
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedLayoutBranchCount} {inheritedLayoutBranchCount === 1 ? "filial segue" : "filiais seguem"} este layout</strong><small>{branches.length - inheritedLayoutBranchCount > 0 ? `${branches.length - inheritedLayoutBranchCount} com layout próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Define o visual padrão dos catálogos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon photos"><Images size={19} /></span><span className="parameter-item-name"><strong>Fotos por produto</strong><small>Galeria · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyProductImageLimit}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <label className="parameter-number-field"><span>Quantidade máxima</span><div><button type="button" aria-label="Diminuir quantidade" onClick={() => onCompanyProductImageLimitChange(Math.max(PRODUCT_IMAGE_LIMIT_MIN, companyProductImageLimit - 1))}>−</button><input type="number" min={PRODUCT_IMAGE_LIMIT_MIN} max={PRODUCT_IMAGE_LIMIT_MAX} value={companyProductImageLimit} onChange={(event) => onCompanyProductImageLimitChange(productImageLimitValue(event.target.value))} /><button type="button" aria-label="Aumentar quantidade" onClick={() => onCompanyProductImageLimitChange(Math.min(PRODUCT_IMAGE_LIMIT_MAX, companyProductImageLimit + 1))}>+</button></div><small>Entre {PRODUCT_IMAGE_LIMIT_MIN} e {PRODUCT_IMAGE_LIMIT_MAX} fotos por produto.</small></label>
-                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedImageLimitBranchCount} {inheritedImageLimitBranchCount === 1 ? "filial segue" : "filiais seguem"} este limite</strong><small>{branches.length - inheritedImageLimitBranchCount > 0 ? `${branches.length - inheritedImageLimitBranchCount} com limite próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Controla a galeria de fotos dos produtos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              </>
-            ) : activeBranch ? (
-              <>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · {activeMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Comportamento nesta filial</legend>
-                      <div className="parameter-mode-options">
-                        <label className={activeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="inherit" checked={activeMode === "inherit"} onChange={() => onBranchModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
-                        <label className={activeMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="enabled" checked={activeMode === "enabled"} onChange={() => onBranchModeChange(activeBranch.id, "enabled")} /><Truck size={17} /><span><strong>Ativar</strong><small>Sempre ativo</small></span></label>
-                        <label className={activeMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="disabled" checked={activeMode === "disabled"} onChange={() => onBranchModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Não utilizar</small></span></label>
-                      </div>
-                    </fieldset>
-                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset" disabled={!activeEnabled}>
-                      <legend>Forma de cálculo nesta filial</legend>
-                      <div className="parameter-mode-options parameter-layout-options">
-                        <label className={activeDeliveryFeeTypeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="inherit" checked={activeDeliveryFeeTypeMode === "inherit"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>{companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Valor por km"} da empresa</small></span></label>
-                        <label className={activeDeliveryFeeTypeMode === "fixed" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="fixed" checked={activeDeliveryFeeTypeMode === "fixed"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "fixed")} /><Truck size={17} /><span><strong>Taxa fixa</strong><small>Mesmo valor por pedido</small></span></label>
-                        <label className={activeDeliveryFeeTypeMode === "per_km" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="per_km" checked={activeDeliveryFeeTypeMode === "per_km"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "per_km")} /><MapPin size={17} /><span><strong>Por km</strong><small>Calculada pela localização</small></span></label>
-                      </div>
-                    </fieldset>
-                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">{activeDeliveryFeeType === "fixed" ? "Valor da taxa fixa" : "Valor por quilômetro"}</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, formatMoneyInput(event.target.value))} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Este valor será somado a qualquer pedido com entrega." : "A taxa será a distância até o cliente multiplicada por este valor." : "Disponível quando o parâmetro estiver ativo."}</small></div>
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon schedule"><Clock size={19} /></span><span className="parameter-item-name"><strong>Horário de funcionamento</strong><small>Atendimento · Configuração da filial</small></span><strong className="parameter-value-badge">{businessHoursSummary(activeBusinessHours)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch business-hours-parameter">
-                    <BusinessHoursEditor
-                      branchName={activeBranch.name}
-                      config={activeBusinessHours}
-                      onChange={(config) => onBranchBusinessHoursChange(activeBranch.id, config)}
-                    />
-                    <footer className="parameter-form-footer"><span>Quando a loja estiver fechada, a vitrine mostra um aviso discreto no perfil.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon stock"><Package size={19} /></span><span className="parameter-item-name"><strong>Controle de estoque</strong><small>Produtos · {activeStockControlMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeStockControl ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeStockControl ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Comportamento nesta filial</legend>
-                      <div className="parameter-mode-options">
-                        <label className={activeStockControlMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="inherit" checked={activeStockControlMode === "inherit"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
-                        <label className={activeStockControlMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="enabled" checked={activeStockControlMode === "enabled"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "enabled")} /><Package size={17} /><span><strong>Ativar</strong><small>Usar estoque</small></span></label>
-                        <label className={activeStockControlMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="disabled" checked={activeStockControlMode === "disabled"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Ocultar estoque</small></span></label>
-                      </div>
-                    </fieldset>
-                    <footer className="parameter-form-footer"><span>Afeta o cadastro e o Excel de {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Plus size={19} /></span><span className="parameter-item-name"><strong>Adicionais</strong><small>Produtos - {activeAdditionsMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeAdditions ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeAdditions ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Comportamento nesta filial</legend>
-                      <div className="parameter-mode-options">
-                        <label className={activeAdditionsMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="inherit" checked={activeAdditionsMode === "inherit"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
-                        <label className={activeAdditionsMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="enabled" checked={activeAdditionsMode === "enabled"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "enabled")} /><Plus size={17} /><span><strong>Ativar</strong><small>Usar adicionais</small></span></label>
-                        <label className={activeAdditionsMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="disabled" checked={activeAdditionsMode === "disabled"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Ocultar adicionais</small></span></label>
-                      </div>
-                    </fieldset>
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · {activeOrderMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{orderModeLabel(activeOrderModeValue)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Destino nesta filial</legend>
-                      <div className="parameter-mode-options four">
-                        <label className={activeOrderMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="inherit" checked={activeOrderMode === "inherit"} onChange={() => onBranchOrderModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
-                        <label className={activeOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="whatsapp" checked={activeOrderMode === "whatsapp"} onChange={() => onBranchOrderModeChange(activeBranch.id, "whatsapp")} /><MessageSquareText size={17} /><span><strong>WhatsApp</strong><small>Enviar para a loja</small></span></label>
-                        <label className={activeOrderMode === "internal" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="internal" checked={activeOrderMode === "internal"} onChange={() => onBranchOrderModeChange(activeBranch.id, "internal")} /><ClipboardList size={17} /><span><strong>Comanda</strong><small>Usar painel de pedidos</small></span></label>
-                        <label className={activeOrderMode === "both" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="both" checked={activeOrderMode === "both"} onChange={() => onBranchOrderModeChange(activeBranch.id, "both")} /><SlidersHorizontal size={17} /><span><strong>Ambos</strong><small>Dois links separados</small></span></label>
-                      </div>
-                    </fieldset>
-                    <BranchOrderLinks branch={activeBranch} mode={activeOrderModeValue} />
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Visual interno</strong><small>Mesa e equipe · {activeCompactInternalCatalogMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeCompactInternalCatalog ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeCompactInternalCatalog ? "Compacto" : "Completo"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Apresentação nesta filial</legend>
-                      <div className="parameter-mode-options">
-                        <label className={activeCompactInternalCatalogMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-compact-internal-catalog" value="inherit" checked={activeCompactInternalCatalogMode === "inherit"} onChange={() => onBranchCompactInternalCatalogModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
-                        <label className={activeCompactInternalCatalogMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-compact-internal-catalog" value="enabled" checked={activeCompactInternalCatalogMode === "enabled"} onChange={() => onBranchCompactInternalCatalogModeChange(activeBranch.id, "enabled")} /><LayoutDashboard size={17} /><span><strong>Compacto</strong><small>Só capa e foto</small></span></label>
-                        <label className={activeCompactInternalCatalogMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-compact-internal-catalog" value="disabled" checked={activeCompactInternalCatalogMode === "disabled"} onChange={() => onBranchCompactInternalCatalogModeChange(activeBranch.id, "disabled")} /><MapPin size={17} /><span><strong>Completo</strong><small>Mostra mapa e descrição</small></span></label>
-                      </div>
-                    </fieldset>
-                    <footer className="parameter-form-footer"><span>Afeta somente os links internos de {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon print"><Printer size={19} /></span><span className="parameter-item-name"><strong>Configurações de impressão</strong><small>Comanda interna · {activePrintMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{printModeLabel(activePrintModeValue)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch print-agent-settings">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Saída nesta filial</legend>
-                      <div className="parameter-mode-options parameter-print-options">
-                        <label className={activePrintMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="inherit" checked={activePrintMode === "inherit"} onChange={() => onBranchPrintModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>{printModeLabel(companyPrintMode)} da empresa</small></span></label>
-                        <label className={activePrintMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="disabled" checked={activePrintMode === "disabled"} onChange={() => onBranchPrintModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativada</strong><small>Sem impressão</small></span></label>
-                        <label className={activePrintMode === "manual" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="manual" checked={activePrintMode === "manual"} onChange={() => onBranchPrintModeChange(activeBranch.id, "manual")} /><Printer size={17} /><span><strong>Manual</strong><small>Botão no painel</small></span></label>
-                        <label className={activePrintMode === "automatic" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="automatic" checked={activePrintMode === "automatic"} onChange={() => onBranchPrintModeChange(activeBranch.id, "automatic")} /><RefreshCw size={17} /><span><strong>Automática</strong><small>Agente local</small></span></label>
-                        <label className={activePrintMode === "manual_and_automatic" ? "selected" : ""}><input type="radio" name="branch-print-mode" value="manual_and_automatic" checked={activePrintMode === "manual_and_automatic"} onChange={() => onBranchPrintModeChange(activeBranch.id, "manual_and_automatic")} /><SlidersHorizontal size={17} /><span><strong>Ambas</strong><small>Automática + reimpressão</small></span></label>
-                      </div>
-                    </fieldset>
-                    <section className="print-agent-download-panel">
-                      <span><Printer size={18} /></span>
-                      <div><strong>Agente local desta filial</strong><small>Baixe e execute no computador conectado à impressora desta filial. Ele mostra as impressoras disponíveis, registra o agente no Windows e inicia automaticamente.</small></div>
-                      <button className="admin-secondary" type="button" onClick={() => onDownloadPrintAgentInstaller(activeBranch)} disabled={Boolean(generatingPrintInstallerId)}>
-                        <Download size={16} />
-                        {generatingPrintInstallerId === activeBranch.id ? "Gerando..." : "Baixar instalador"}
-                      </button>
-                    </section>
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Layout do catálogo</strong><small>Visual · {activeLayoutMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeCatalogLayout === "horizontal" ? "Horizontal" : "Vitrine"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body">
-                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset">
-                      <legend>Apresentação nesta filial</legend>
-                      <div className="parameter-mode-options parameter-layout-options">
-                        <label className={activeLayoutMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="inherit" checked={activeLayoutMode === "inherit"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
-                        <label className={activeLayoutMode === "horizontal" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="horizontal" checked={activeLayoutMode === "horizontal"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "horizontal")} /><LayoutDashboard size={17} /><span><strong>Horizontal</strong><small>Foto ao lado</small></span></label>
-                        <label className={activeLayoutMode === "showcase" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="showcase" checked={activeLayoutMode === "showcase"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "showcase")} /><ImagePlus size={17} /><span><strong>Vitrine</strong><small>Foto acima</small></span></label>
-                      </div>
-                    </fieldset>
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
-                <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon photos"><Images size={19} /></span><span className="parameter-item-name"><strong>Fotos por produto</strong><small>Galeria · {activeImageLimitMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeImageLimit}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
-                  <div className="parameter-compact-body branch">
-                    <fieldset className="parameter-mode-fieldset">
-                      <legend>Comportamento nesta filial</legend>
-                      <div className="parameter-mode-options parameter-image-limit-options">
-                        <label className={activeImageLimitMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-image-limit-mode" value="inherit" checked={activeImageLimitMode === "inherit"} onChange={() => onBranchProductImageLimitChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Usar {companyProductImageLimit} foto(s)</small></span></label>
-                        <label className={activeImageLimitMode !== "inherit" ? "selected" : ""}><input type="radio" name="branch-image-limit-mode" value="custom" checked={activeImageLimitMode !== "inherit"} onChange={() => onBranchProductImageLimitChange(activeBranch.id, companyProductImageLimit)} /><Images size={17} /><span><strong>Personalizar</strong><small>Limite próprio</small></span></label>
-                      </div>
-                    </fieldset>
-                    <label className="parameter-number-field"><span>Quantidade máxima nesta filial</span><div><button type="button" aria-label="Diminuir quantidade" disabled={activeImageLimitMode === "inherit"} onClick={() => onBranchProductImageLimitChange(activeBranch.id, Math.max(PRODUCT_IMAGE_LIMIT_MIN, activeImageLimit - 1))}>−</button><input type="number" min={PRODUCT_IMAGE_LIMIT_MIN} max={PRODUCT_IMAGE_LIMIT_MAX} value={activeImageLimit} disabled={activeImageLimitMode === "inherit"} onChange={(event) => onBranchProductImageLimitChange(activeBranch.id, productImageLimitValue(event.target.value))} /><button type="button" aria-label="Aumentar quantidade" disabled={activeImageLimitMode === "inherit"} onClick={() => onBranchProductImageLimitChange(activeBranch.id, Math.min(PRODUCT_IMAGE_LIMIT_MAX, activeImageLimit + 1))}>+</button></div><small>{activeImageLimitMode === "inherit" ? `Herdando ${companyProductImageLimit} da empresa.` : `Entre ${PRODUCT_IMAGE_LIMIT_MIN} e ${PRODUCT_IMAGE_LIMIT_MAX} fotos.`}</small></label>
-                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
-                  </div>
-                </details>
-              </form>
-              </>
-            ) : <p className="parameter-empty">Cadastre uma filial para configurar parâmetros específicos.</p>}
-          </section>
-        )}
-      </div>
+    <section className="settings-workspace">
+      {scopeTabs}
+      <p className="settings-scope-hint">{scopeHint}</p>
+      <form className="settings-form" onSubmit={submit}>
+        {scope === "company" ? (
+          <CompanyParameterFields
+            branchCount={branches.length}
+            isCompanyPortal={isCompanyPortal}
+            companyEnabled={companyEnabled}
+            companyDeliveryFeeType={companyDeliveryFeeType}
+            companyCatalogLayout={companyCatalogLayout}
+            companyProductImageLimit={companyProductImageLimit}
+            companyControlsStock={companyControlsStock}
+            companyEnablesAdditions={companyEnablesAdditions}
+            companyOrderMode={companyOrderMode}
+            companyCompactInternalCatalog={companyCompactInternalCatalog}
+            companyPrintMode={companyPrintMode}
+            overrides={{
+              freight: countOverrides(branchModes),
+              feeType: countOverrides(branchDeliveryFeeTypeModes),
+              layout: countOverrides(branchCatalogLayouts),
+              imageLimit: countOverrides(branchProductImageLimits),
+              stock: countOverrides(branchStockControlModes),
+              additions: countOverrides(branchAdditionsModes),
+              orderMode: countOverrides(branchOrderModes),
+              compact: countOverrides(branchCompactInternalCatalogModes),
+              print: countOverrides(branchPrintModes),
+            }}
+            onCompanyEnabledChange={edited(onCompanyEnabledChange)}
+            onCompanyDeliveryFeeTypeChange={edited(onCompanyDeliveryFeeTypeChange)}
+            onCompanyCatalogLayoutChange={edited(onCompanyCatalogLayoutChange)}
+            onCompanyProductImageLimitChange={edited(onCompanyProductImageLimitChange)}
+            onCompanyControlsStockChange={edited(onCompanyControlsStockChange)}
+            onCompanyEnablesAdditionsChange={edited(onCompanyEnablesAdditionsChange)}
+            onCompanyOrderModeChange={edited(onCompanyOrderModeChange)}
+            onCompanyCompactInternalCatalogChange={edited(onCompanyCompactInternalCatalogChange)}
+            onCompanyPrintModeChange={edited(onCompanyPrintModeChange)}
+          />
+        ) : activeBranch ? (
+          <BranchParameterFields
+            branch={activeBranch}
+            isCompanyPortal={isCompanyPortal}
+            companyEnabled={companyEnabled}
+            companyDeliveryFeeType={companyDeliveryFeeType}
+            companyCatalogLayout={companyCatalogLayout}
+            companyProductImageLimit={companyProductImageLimit}
+            companyControlsStock={companyControlsStock}
+            companyEnablesAdditions={companyEnablesAdditions}
+            companyOrderMode={companyOrderMode}
+            companyCompactInternalCatalog={companyCompactInternalCatalog}
+            companyPrintMode={companyPrintMode}
+            freightMode={branchModes[activeBranch.id] ?? "inherit"}
+            deliveryFeeTypeMode={branchDeliveryFeeTypeModes[activeBranch.id] ?? "inherit"}
+            fee={branchFees[activeBranch.id] ?? "0,00"}
+            layoutMode={branchCatalogLayouts[activeBranch.id] ?? "inherit"}
+            imageLimitMode={branchProductImageLimits[activeBranch.id] ?? "inherit"}
+            stockMode={branchStockControlModes[activeBranch.id] ?? "inherit"}
+            additionsMode={branchAdditionsModes[activeBranch.id] ?? "inherit"}
+            orderMode={branchOrderModes[activeBranch.id] ?? "inherit"}
+            compactMode={branchCompactInternalCatalogModes[activeBranch.id] ?? "inherit"}
+            printMode={branchPrintModes[activeBranch.id] ?? "inherit"}
+            businessHours={branchBusinessHours[activeBranch.id] ?? createDefaultBusinessHours()}
+            isGeneratingInstaller={generatingPrintInstallerId === activeBranch.id}
+            isInstallerBusy={Boolean(generatingPrintInstallerId)}
+            onFreightModeChange={edited((mode: FreightParameterMode) => onBranchModeChange(activeBranch.id, mode))}
+            onDeliveryFeeTypeModeChange={edited((mode: BranchDeliveryFeeTypeMode) => onBranchDeliveryFeeTypeModeChange(activeBranch.id, mode))}
+            onFeeChange={edited((fee: string) => onBranchFeeChange(activeBranch.id, fee))}
+            onLayoutModeChange={edited((mode: BranchCatalogLayoutMode) => onBranchCatalogLayoutChange(activeBranch.id, mode))}
+            onImageLimitModeChange={edited((mode: ProductImageLimitMode) => onBranchProductImageLimitChange(activeBranch.id, mode))}
+            onStockModeChange={edited((mode: StockControlMode) => onBranchStockControlModeChange(activeBranch.id, mode))}
+            onAdditionsModeChange={edited((mode: AdditionsMode) => onBranchAdditionsModeChange(activeBranch.id, mode))}
+            onOrderModeChange={edited((mode: BranchOrderMode) => onBranchOrderModeChange(activeBranch.id, mode))}
+            onCompactModeChange={edited((mode: CompactInternalCatalogMode) => onBranchCompactInternalCatalogModeChange(activeBranch.id, mode))}
+            onPrintModeChange={edited((mode: BranchPrintMode) => onBranchPrintModeChange(activeBranch.id, mode))}
+            onBusinessHoursChange={edited((config: BusinessHoursConfig) => onBranchBusinessHoursChange(activeBranch.id, config))}
+            onDownloadInstaller={() => onDownloadPrintAgentInstaller(activeBranch)}
+          />
+        ) : <p className="admin-muted">Cadastre uma filial para configurar valores próprios.</p>}
+        <footer className={isDirty ? "settings-savebar dirty" : "settings-savebar"}>
+          <span role="status">{saving ? "Salvando..." : isDirty ? "Alterações não salvas" : "Tudo salvo"}</span>
+          <div>
+            {isDirty ? <button className="admin-secondary" type="button" disabled={saving} onClick={() => void discard()}>Descartar</button> : null}
+            <button className="admin-primary" type="submit" disabled={saving || !isDirty}>{saving ? "Salvando..." : "Salvar alterações"}</button>
+          </div>
+        </footer>
+      </form>
     </section>
   );
 }
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return <fieldset className="settings-group"><legend>{title}</legend>{children}</fieldset>;
+}
+
+function SettingRow({ title, help, isOverridden = false, children }: { title: string; help?: string; isOverridden?: boolean; children: ReactNode }) {
+  return (
+    <div className="setting-row">
+      <div className="setting-row-label">
+        <strong>{title}{isOverridden ? <em>valor próprio</em> : null}</strong>
+        {help ? <small>{help}</small> : null}
+      </div>
+      <div className="setting-row-control">{children}</div>
+    </div>
+  );
+}
+
+function ChoiceField<T extends string>({ name, value, options, isDisabled = false, onChange }: { name: string; value: T; options: Array<ChoiceOption<T>>; isDisabled?: boolean; onChange: (value: T) => void }) {
+  if (options.length > 3) {
+    return (
+      <select className="choice-select" name={name} value={value} disabled={isDisabled} onChange={(event) => onChange(event.target.value as T)}>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    );
+  }
+  return (
+    <div className="choice-field" role="radiogroup">
+      {options.map((option) => (
+        <label key={option.value} className={value === option.value ? "selected" : ""}>
+          <input type="radio" name={name} value={option.value} checked={value === option.value} disabled={isDisabled} onChange={() => onChange(option.value)} />
+          <span>{option.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ImageLimitStepper({ value, isDisabled = false, onChange }: { value: number; isDisabled?: boolean; onChange: (value: number) => void }) {
+  return (
+    <div className="setting-stepper">
+      <button type="button" aria-label="Diminuir quantidade" disabled={isDisabled || value <= PRODUCT_IMAGE_LIMIT_MIN} onClick={() => onChange(Math.max(PRODUCT_IMAGE_LIMIT_MIN, value - 1))}>−</button>
+      <input type="number" aria-label="Fotos por produto" min={PRODUCT_IMAGE_LIMIT_MIN} max={PRODUCT_IMAGE_LIMIT_MAX} value={value} disabled={isDisabled} onChange={(event) => onChange(productImageLimitValue(event.target.value))} />
+      <button type="button" aria-label="Aumentar quantidade" disabled={isDisabled || value >= PRODUCT_IMAGE_LIMIT_MAX} onClick={() => onChange(Math.min(PRODUCT_IMAGE_LIMIT_MAX, value + 1))}>+</button>
+    </div>
+  );
+}
+
+type CompanyParameterOverrides = Record<"freight" | "feeType" | "layout" | "imageLimit" | "stock" | "additions" | "orderMode" | "compact" | "print", number>;
+
+function CompanyParameterFields({
+  branchCount,
+  isCompanyPortal,
+  companyEnabled,
+  companyDeliveryFeeType,
+  companyCatalogLayout,
+  companyProductImageLimit,
+  companyControlsStock,
+  companyEnablesAdditions,
+  companyOrderMode,
+  companyCompactInternalCatalog,
+  companyPrintMode,
+  overrides,
+  onCompanyEnabledChange,
+  onCompanyDeliveryFeeTypeChange,
+  onCompanyCatalogLayoutChange,
+  onCompanyProductImageLimitChange,
+  onCompanyControlsStockChange,
+  onCompanyEnablesAdditionsChange,
+  onCompanyOrderModeChange,
+  onCompanyCompactInternalCatalogChange,
+  onCompanyPrintModeChange,
+}: {
+  branchCount: number;
+  isCompanyPortal: boolean;
+  companyEnabled: boolean;
+  companyDeliveryFeeType: DeliveryFeeType;
+  companyCatalogLayout: CatalogLayout;
+  companyProductImageLimit: number;
+  companyControlsStock: boolean;
+  companyEnablesAdditions: boolean;
+  companyOrderMode: OrderMode;
+  companyCompactInternalCatalog: boolean;
+  companyPrintMode: PrintMode;
+  overrides: CompanyParameterOverrides;
+  onCompanyEnabledChange: (enabled: boolean) => void;
+  onCompanyDeliveryFeeTypeChange: (type: DeliveryFeeType) => void;
+  onCompanyCatalogLayoutChange: (layout: CatalogLayout) => void;
+  onCompanyProductImageLimitChange: (limit: number) => void;
+  onCompanyControlsStockChange: (enabled: boolean) => void;
+  onCompanyEnablesAdditionsChange: (enabled: boolean) => void;
+  onCompanyOrderModeChange: (mode: OrderMode) => void;
+  onCompanyCompactInternalCatalogChange: (enabled: boolean) => void;
+  onCompanyPrintModeChange: (mode: PrintMode) => void;
+}) {
+  const help = (base: string, count: number) => [base, branchCount ? overrideCountLabel(count) : ""].filter(Boolean).join(" · ");
+  const toMode = (enabled: boolean) => enabled ? "enabled" : "disabled";
+  return (
+    <>
+      <SettingsGroup title="Pedidos">
+        <SettingRow title="Destino dos pedidos" help={help("Para onde o pedido do cliente é enviado.", overrides.orderMode)}>
+          <ChoiceField name="company-order-mode" value={companyOrderMode} options={ORDER_MODE_OPTIONS} onChange={onCompanyOrderModeChange} />
+        </SettingRow>
+        <SettingRow title="Impressão da comanda" help={help("Somente para comanda interna.", overrides.print)}>
+          <ChoiceField name="company-print-mode" value={companyPrintMode} options={PRINT_MODE_OPTIONS} onChange={onCompanyPrintModeChange} />
+        </SettingRow>
+        <SettingRow title="Cardápio de mesa e equipe" help={help("Visual compacto mostra só capa e foto antes dos produtos.", overrides.compact)}>
+          <ChoiceField name="company-compact-catalog" value={toMode(companyCompactInternalCatalog)} options={booleanOptions("Compacto", "Completo")} onChange={(mode) => onCompanyCompactInternalCatalogChange(mode === "enabled")} />
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="Entrega">
+        <SettingRow title="Taxa de entrega" help={help("O valor da taxa é definido em cada filial.", overrides.freight)}>
+          <ChoiceField name="company-freight" value={toMode(companyEnabled)} options={booleanOptions("Cobrar taxa", "A combinar")} onChange={(mode) => onCompanyEnabledChange(mode === "enabled")} />
+        </SettingRow>
+        <SettingRow title="Forma de cálculo" help={help("Taxa fixa soma o mesmo valor; por km multiplica pela distância.", overrides.feeType)}>
+          <ChoiceField name="company-fee-type" value={companyDeliveryFeeType} options={DELIVERY_FEE_TYPE_OPTIONS} isDisabled={!companyEnabled} onChange={onCompanyDeliveryFeeTypeChange} />
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="Catálogo">
+        <SettingRow title="Layout dos produtos" help={help("", overrides.layout)}>
+          <ChoiceField name="company-layout" value={companyCatalogLayout} options={CATALOG_LAYOUT_OPTIONS} onChange={onCompanyCatalogLayoutChange} />
+        </SettingRow>
+        <SettingRow title="Controle de estoque" help={help("Desativado, o estoque some do cadastro e da planilha.", overrides.stock)}>
+          <ChoiceField name="company-stock" value={toMode(companyControlsStock)} options={booleanOptions("Ativo", "Desativado")} onChange={(mode) => onCompanyControlsStockChange(mode === "enabled")} />
+        </SettingRow>
+        <SettingRow title="Adicionais nos produtos" help={help("", overrides.additions)}>
+          <ChoiceField name="company-additions" value={toMode(companyEnablesAdditions)} options={booleanOptions("Ativo", "Desativado")} onChange={(mode) => onCompanyEnablesAdditionsChange(mode === "enabled")} />
+        </SettingRow>
+        {isCompanyPortal ? (
+          <SettingRow title="Fotos por produto" help="Limite do seu plano. Fale com o suporte para alterar.">
+            <span className="setting-readonly">{companyProductImageLimit}</span>
+          </SettingRow>
+        ) : (
+          <SettingRow title="Fotos por produto" help={help(`Entre ${PRODUCT_IMAGE_LIMIT_MIN} e ${PRODUCT_IMAGE_LIMIT_MAX}.`, overrides.imageLimit)}>
+            <ImageLimitStepper value={companyProductImageLimit} onChange={onCompanyProductImageLimitChange} />
+          </SettingRow>
+        )}
+      </SettingsGroup>
+    </>
+  );
+}
+
+function BranchParameterFields({
+  branch,
+  isCompanyPortal,
+  companyEnabled,
+  companyDeliveryFeeType,
+  companyCatalogLayout,
+  companyProductImageLimit,
+  companyControlsStock,
+  companyEnablesAdditions,
+  companyOrderMode,
+  companyCompactInternalCatalog,
+  companyPrintMode,
+  freightMode,
+  deliveryFeeTypeMode,
+  fee,
+  layoutMode,
+  imageLimitMode,
+  stockMode,
+  additionsMode,
+  orderMode,
+  compactMode,
+  printMode,
+  businessHours,
+  isGeneratingInstaller,
+  isInstallerBusy,
+  onFreightModeChange,
+  onDeliveryFeeTypeModeChange,
+  onFeeChange,
+  onLayoutModeChange,
+  onImageLimitModeChange,
+  onStockModeChange,
+  onAdditionsModeChange,
+  onOrderModeChange,
+  onCompactModeChange,
+  onPrintModeChange,
+  onBusinessHoursChange,
+  onDownloadInstaller,
+}: {
+  branch: Branch;
+  isCompanyPortal: boolean;
+  companyEnabled: boolean;
+  companyDeliveryFeeType: DeliveryFeeType;
+  companyCatalogLayout: CatalogLayout;
+  companyProductImageLimit: number;
+  companyControlsStock: boolean;
+  companyEnablesAdditions: boolean;
+  companyOrderMode: OrderMode;
+  companyCompactInternalCatalog: boolean;
+  companyPrintMode: PrintMode;
+  freightMode: FreightParameterMode;
+  deliveryFeeTypeMode: BranchDeliveryFeeTypeMode;
+  fee: string;
+  layoutMode: BranchCatalogLayoutMode;
+  imageLimitMode: ProductImageLimitMode;
+  stockMode: StockControlMode;
+  additionsMode: AdditionsMode;
+  orderMode: BranchOrderMode;
+  compactMode: CompactInternalCatalogMode;
+  printMode: BranchPrintMode;
+  businessHours: BusinessHoursConfig;
+  isGeneratingInstaller: boolean;
+  isInstallerBusy: boolean;
+  onFreightModeChange: (mode: FreightParameterMode) => void;
+  onDeliveryFeeTypeModeChange: (mode: BranchDeliveryFeeTypeMode) => void;
+  onFeeChange: (fee: string) => void;
+  onLayoutModeChange: (mode: BranchCatalogLayoutMode) => void;
+  onImageLimitModeChange: (mode: ProductImageLimitMode) => void;
+  onStockModeChange: (mode: StockControlMode) => void;
+  onAdditionsModeChange: (mode: AdditionsMode) => void;
+  onOrderModeChange: (mode: BranchOrderMode) => void;
+  onCompactModeChange: (mode: CompactInternalCatalogMode) => void;
+  onPrintModeChange: (mode: BranchPrintMode) => void;
+  onBusinessHoursChange: (config: BusinessHoursConfig) => void;
+  onDownloadInstaller: () => void;
+}) {
+  const isFreightEnabled = freightMode === "inherit" ? companyEnabled : freightMode === "enabled";
+  const deliveryFeeType = deliveryFeeTypeMode === "inherit" ? companyDeliveryFeeType : deliveryFeeTypeMode;
+  const effectiveOrderMode = orderMode === "inherit" ? companyOrderMode : orderMode;
+  const effectivePrintMode = printMode === "inherit" ? companyPrintMode : printMode;
+  const isImageLimitCustom = imageLimitMode !== "inherit";
+  const imageLimit = isImageLimitCustom ? imageLimitMode : companyProductImageLimit;
+  const onOff = (enabled: boolean, onLabel: string, offLabel: string) => enabled ? onLabel : offLabel;
+  const booleanInheritOptions = (inherited: boolean, onLabel: string, offLabel: string) => [
+    inheritOption<"enabled" | "disabled">(onOff(inherited, onLabel, offLabel)),
+    ...booleanOptions(onLabel, offLabel),
+  ];
+
+  return (
+    <>
+      <SettingsGroup title="Horário de funcionamento">
+        <div className="setting-row setting-row-full">
+          <BusinessHoursEditor branchName={branch.name} config={businessHours} onChange={onBusinessHoursChange} />
+          <small className="setting-row-note">Fora do horário, o catálogo mostra um aviso de loja fechada.</small>
+        </div>
+      </SettingsGroup>
+      <SettingsGroup title="Pedidos">
+        <SettingRow title="Destino dos pedidos" isOverridden={orderMode !== "inherit"}>
+          <ChoiceField name="branch-order-mode" value={orderMode} options={[inheritOption<OrderMode>(orderModeLabel(companyOrderMode)), ...ORDER_MODE_OPTIONS]} onChange={onOrderModeChange} />
+        </SettingRow>
+        <div className="setting-row setting-row-full"><BranchOrderLinks branch={branch} mode={effectiveOrderMode} /></div>
+        <SettingRow title="Impressão da comanda" isOverridden={printMode !== "inherit"}>
+          <ChoiceField name="branch-print-mode" value={printMode} options={[inheritOption<PrintMode>(printModeLabel(companyPrintMode)), ...PRINT_MODE_OPTIONS]} onChange={onPrintModeChange} />
+        </SettingRow>
+        {effectivePrintMode === "automatic" || effectivePrintMode === "manual_and_automatic" ? (
+          <SettingRow title="Agente de impressão" help="Execute no computador ligado à impressora desta filial.">
+            <button className="admin-secondary" type="button" onClick={onDownloadInstaller} disabled={isInstallerBusy}>
+              <Download size={16} /> {isGeneratingInstaller ? "Gerando..." : "Baixar instalador"}
+            </button>
+          </SettingRow>
+        ) : null}
+        <SettingRow title="Cardápio de mesa e equipe" isOverridden={compactMode !== "inherit"}>
+          <ChoiceField name="branch-compact-catalog" value={compactMode} options={booleanInheritOptions(companyCompactInternalCatalog, "Compacto", "Completo")} onChange={onCompactModeChange} />
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="Entrega">
+        <SettingRow title="Taxa de entrega" isOverridden={freightMode !== "inherit"}>
+          <ChoiceField name="branch-freight" value={freightMode} options={booleanInheritOptions(companyEnabled, "Cobrar taxa", "A combinar")} onChange={onFreightModeChange} />
+        </SettingRow>
+        <SettingRow title="Forma de cálculo" isOverridden={deliveryFeeTypeMode !== "inherit"}>
+          <ChoiceField name="branch-fee-type" value={deliveryFeeTypeMode} options={[inheritOption<DeliveryFeeType>(deliveryFeeTypeLabel(companyDeliveryFeeType)), ...DELIVERY_FEE_TYPE_OPTIONS]} isDisabled={!isFreightEnabled} onChange={onDeliveryFeeTypeModeChange} />
+        </SettingRow>
+        <SettingRow title={deliveryFeeType === "fixed" ? "Valor da taxa" : "Valor por km"} help={isFreightEnabled ? undefined : "Ative a taxa de entrega para informar o valor."}>
+          <div className="setting-money"><b>R$</b><input aria-label={deliveryFeeType === "fixed" ? "Valor da taxa" : "Valor por km"} value={fee} onChange={(event) => onFeeChange(formatMoneyInput(event.target.value))} placeholder="0,00" inputMode="decimal" disabled={!isFreightEnabled} /></div>
+        </SettingRow>
+      </SettingsGroup>
+      <SettingsGroup title="Catálogo">
+        <SettingRow title="Layout dos produtos" isOverridden={layoutMode !== "inherit"}>
+          <ChoiceField name="branch-layout" value={layoutMode} options={[inheritOption<CatalogLayout>(catalogLayoutLabel(companyCatalogLayout)), ...CATALOG_LAYOUT_OPTIONS]} onChange={onLayoutModeChange} />
+        </SettingRow>
+        <SettingRow title="Controle de estoque" isOverridden={stockMode !== "inherit"}>
+          <ChoiceField name="branch-stock" value={stockMode} options={booleanInheritOptions(companyControlsStock, "Ativo", "Desativado")} onChange={onStockModeChange} />
+        </SettingRow>
+        <SettingRow title="Adicionais nos produtos" isOverridden={additionsMode !== "inherit"}>
+          <ChoiceField name="branch-additions" value={additionsMode} options={booleanInheritOptions(companyEnablesAdditions, "Ativo", "Desativado")} onChange={onAdditionsModeChange} />
+        </SettingRow>
+        {isCompanyPortal ? (
+          <SettingRow title="Fotos por produto" help="Limite do seu plano.">
+            <span className="setting-readonly">{imageLimit}</span>
+          </SettingRow>
+        ) : (
+          <SettingRow title="Fotos por produto" isOverridden={isImageLimitCustom}>
+            <div className="setting-inline">
+              <ChoiceField name="branch-image-limit" value={isImageLimitCustom ? "custom" : "inherit"} options={[inheritOption<"custom">(String(companyProductImageLimit)), { value: "custom", label: "Personalizar" }]} onChange={(mode) => onImageLimitModeChange(mode === "inherit" ? "inherit" : companyProductImageLimit)} />
+              {isImageLimitCustom ? <ImageLimitStepper value={imageLimit} onChange={onImageLimitModeChange} /> : null}
+            </div>
+          </SettingRow>
+        )}
+      </SettingsGroup>
+    </>
+  );
+}
+
 
 function ParameterToggle({ checked, title, description, onChange }: { checked: boolean; title: string; description: string; onChange: (checked: boolean) => void }) {
   return <label className="parameter-toggle-row"><span><strong>{title}</strong><small>{description}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true"><b /></i></label>;
@@ -4914,13 +5210,17 @@ function LocationHelp({ issue }: { issue: string }) {
 function AdminCompanies({
   tenants,
   branches,
-  onNew,
+  statuses,
+  onStatusChanged,
+  onOpenRequests,
   onOpenCatalog,
   onOpenSettings,
 }: {
   tenants: Tenant[];
   branches: Branch[];
-  onNew: () => void;
+  statuses: Map<string, CompanyStatusRow>;
+  onStatusChanged: () => void;
+  onOpenRequests: () => void;
   onOpenCatalog: (tenantId: string) => void;
   onOpenSettings: (tenantId: string) => void;
 }) {
@@ -4940,26 +5240,27 @@ function AdminCompanies({
         <div><LayoutDashboard size={20} /><span>Com várias filiais</span><strong>{companiesWithMultipleBranches}</strong></div>
       </div>
       <div className="admin-company-toolbar">
-        <div><span>Empresas cadastradas</span><h2>Gestão de clientes</h2><p>Pesquise uma empresa e escolha a área que deseja administrar.</p></div>
-        <button className="admin-primary" type="button" onClick={onNew}><Plus size={16} /> Nova empresa</button>
+        <div><span>Empresas cadastradas</span><h2>Acompanhamento</h2><p>Veja a situação de cada loja, suspenda ou reative. Novas lojas chegam pelas solicitações.</p></div>
+        <button className="admin-primary" type="button" onClick={onOpenRequests}><Inbox size={16} /> Solicitações</button>
       </div>
       {tenants.length ? (
         <>
           <label className="admin-company-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por empresa ou filial" /></label>
           <div className="admin-company-table">
-            <div className="company-table-head"><span>Empresa</span><span>Filiais</span><span>Ações</span></div>
+            <div className="company-table-head"><span>Empresa</span><span>Filiais</span><span>Situação</span><span>Ações</span></div>
             {visibleTenants.map((item) => {
               const companyBranches = branches.filter((branch) => branch.tenant_id === item.id);
               return (
                 <article className="company-admin-card" key={item.id}>
                   <div className="company-admin-info">
                     <span className="company-admin-avatar" style={{ "--company-color": companyThemeColor(item.theme_color) } as CSSProperties}>{item.profile_image_url ? <img src={item.profile_image_url} alt="" /> : item.name.trim().slice(0, 2).toUpperCase()}</span>
-                    <span><strong>{item.name}</strong><small>Identificador: {item.slug}</small><b className={item.is_active === false ? "company-status-badge inactive" : "company-status-badge active"}>{item.is_active === false ? "Inativa" : "Ativa"}</b></span>
+                    <span><strong>{item.name}</strong><small>Identificador: {item.slug}</small>{statuses.has(item.id) ? null : <b className={item.is_active === false ? "company-status-badge inactive" : "company-status-badge active"}>{item.is_active === false ? "Inativa" : "Ativa"}</b>}</span>
                   </div>
                   <div className="company-branch-preview">
                     <strong>{companyBranches.length} {companyBranches.length === 1 ? "filial" : "filiais"}</strong>
                     <small>{companyBranches.slice(0, 2).map((branch) => branch.name).join(" · ") || "Nenhuma filial vinculada"}{companyBranches.length > 2 ? ` · +${companyBranches.length - 2}` : ""}</small>
                   </div>
+                  <CompanyStatusControl tenantId={item.id} status={statuses.get(item.id)} onChanged={onStatusChanged} />
                   <div className="company-card-actions">
                     <button className="admin-secondary" type="button" onClick={() => onOpenSettings(item.id)}><Settings size={16} /> Gerenciar</button>
                     <button className="admin-primary" type="button" onClick={() => onOpenCatalog(item.id)}><Package size={16} /> Catálogo</button>
@@ -4971,40 +5272,67 @@ function AdminCompanies({
           </div>
         </>
       ) : (
-        <div className="admin-form-panel admin-company-empty"><Building2 size={24} /><strong>Nenhuma empresa cadastrada</strong><span>Cadastre a primeira empresa para começar.</span><button className="admin-primary" type="button" onClick={onNew}><Plus size={16} /> Cadastrar empresa</button></div>
+        <div className="admin-form-panel admin-company-empty"><Building2 size={24} /><strong>Nenhuma empresa ainda</strong><span>As lojas pedem acesso em /cadastro e aparecem em Solicitações para você aprovar.</span><button className="admin-primary" type="button" onClick={onOpenRequests}><Inbox size={16} /> Ver solicitações</button></div>
       )}
     </section>
   );
 }
 
-function AdminLogin({ portalMode }: { portalMode: PortalMode }) {
-  const isCompanyPortal = portalMode === "company";
-  const isBranchPortal = portalMode === "branch";
-  const [cnpj, setCnpj] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+type DocumentFieldProps = {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  showPrivacyHint?: boolean;
+};
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase) {
-      setMessage("Supabase não configurado neste computador. Configure o arquivo .env.local e reinicie o servidor.");
-      return;
-    }
-    if (isBranchPortal && !isValidCnpj(cnpj)) {
-      setMessage("Informe o CNPJ válido da filial.");
-      return;
-    }
-    if (isBranchPortal) window.localStorage.setItem(BRANCH_CNPJ_STORAGE_KEY, cnpj.replace(/\D/g, ""));
-    const result = await supabase.auth.signInWithPassword({ email, password });
-    if (result.error) setMessage(result.error.message);
+// Campo de documento com alternância CPF/CNPJ. O tipo vem do valor salvo até o usuário escolher.
+function DocumentField({ label, value, onChange, showPrivacyHint = true }: DocumentFieldProps) {
+  const inputId = useId();
+  const [chosenKind, setChosenKind] = useState<DocumentKind | null>(null);
+  const kind = chosenKind ?? detectDocumentKind(value);
+
+  function selectKind(nextKind: DocumentKind) {
+    setChosenKind(nextKind);
+    onChange(formatDocument(value, nextKind));
   }
 
-  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : isBranchPortal ? "Painel da filial" : "Central dos administradores"}</span><h1>Entrar</h1><form onSubmit={submit}>{isBranchPortal ? <label>CNPJ da filial<input value={cnpj} onChange={(event) => setCnpj(formatCnpj(event.target.value))} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label> : null}<label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">Entrar</button></form>{!isCompanyPortal ? <a className="admin-link" href="/empresa">Entrar como empresa</a> : null}<a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
+  return (
+    <div className="document-field">
+      <div className="document-field-head">
+        <label htmlFor={inputId}>{label}<span className="required-mark" aria-hidden="true">*</span></label>
+        <div className="document-kind" role="radiogroup" aria-label="Tipo de documento">
+          {(["cpf", "cnpj"] as const).map((option) => (
+            <button key={option} type="button" role="radio" aria-checked={kind === option} className={kind === option ? "active" : ""} onClick={() => selectKind(option)}>{option.toUpperCase()}</button>
+          ))}
+        </div>
+      </div>
+      <input
+        id={inputId}
+        value={value}
+        onChange={(event) => {
+          setChosenKind(kind);
+          onChange(formatDocument(event.target.value, kind));
+        }}
+        placeholder={DOCUMENT_PLACEHOLDER[kind]}
+        inputMode="numeric"
+        maxLength={documentMaxLength(kind)}
+        required
+      />
+      {showPrivacyHint && kind === "cpf" ? <small className="document-field-hint">O CPF não aparece no catálogo nem nos links públicos.</small> : null}
+    </div>
+  );
+}
+
+// O login é um só, em /acesso; ele decide o painel pelos papéis da conta.
+function LoginRedirect() {
+  useEffect(() => {
+    window.location.replace("/acesso");
+  }, []);
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><h1>Entrar</h1><p className="admin-muted">Abrindo a tela de entrada...</p><a className="admin-primary" href="/acesso">Ir para a entrada</a></section></main>;
 }
 
 function AdminDenied() {
-  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>Central dos administradores</span><h1>Acesso não autorizado</h1><p className="admin-message">Este usuário pertence a uma empresa e não pode acessar a Central dos administradores.</p><a className="admin-primary" href="/empresa">Ir para o portal da empresa</a><a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>Central dos administradores</span><h1>Acesso não autorizado</h1><p className="admin-message">Esta conta não é administradora da plataforma.</p><a className="admin-primary" href="/acesso">Ir para a minha área</a></section></main>;
 }
 
 export default AdminPage;
@@ -5016,28 +5344,3 @@ function formatWhatsapp(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-function formatCnpj(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 14);
-  return digits
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
-}
-
-function isValidCnpj(value: string) {
-  const digits = value.replace(/\D/g, "");
-  if (!/^\d{14}$/.test(digits) || /^(\d)\1{13}$/.test(digits)) return false;
-  const digit = (length: number) => {
-    let factor = length - 7;
-    let total = 0;
-    for (let index = 0; index < length; index += 1) {
-      total += Number(digits[index]) * factor;
-      factor -= 1;
-      if (factor === 1) factor = 9;
-    }
-    const remainder = total % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-  return digit(12) === Number(digits[12]) && digit(13) === Number(digits[13]);
-}

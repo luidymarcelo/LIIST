@@ -416,7 +416,7 @@ export default function InternalOrdersPage() {
   }
 
   if (loading) return <main className="workflow-page"><div className="operation-loading"><RefreshCw className="spinning" size={22} /><span>Preparando a operação...</span></div></main>;
-  if (!session) return <main className="workflow-page"><section className="workflow-empty"><UtensilsCrossed size={27} /><h1>Entre no portal operacional</h1><p>Use o acesso criado pela empresa para abrir sua área de trabalho.</p><a className="operation-primary" href="/operacao">Entrar</a></section></main>;
+  if (!session) return <main className="workflow-page"><section className="workflow-empty"><UtensilsCrossed size={27} /><h1>Entre na sua conta</h1><p>Use o e-mail e a senha criados pela empresa.</p><a className="operation-primary" href="/acesso">Entrar</a></section></main>;
   if (!tenant || !branches.length) return <main className="workflow-page"><section className="workflow-empty"><UtensilsCrossed size={27} /><h1>Acesso não encontrado</h1><p>{error || "Este usuário não está vinculado a uma filial."}</p><a className="operation-secondary" href="/operacao">Voltar</a></section></main>;
 
   return (

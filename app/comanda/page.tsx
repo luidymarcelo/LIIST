@@ -50,16 +50,22 @@ export default function InternalCommandCatalogPage() {
     const requestedStoreId = params.get("filial")?.trim() ?? "";
     const requestedStoreLookup = params.get("loja")?.trim() ?? "";
     const requestedCnpj = normalizeCnpj(requestedStoreLookup);
-    const query = supabase.from("stores").select("id, slug, cnpj, name").eq("is_active", true);
-    const { data, error: storeError } = requestedStoreId
-      ? await query.eq("id", requestedStoreId).maybeSingle()
-      : requestedCnpj
-        ? await query.eq("cnpj", requestedCnpj).maybeSingle()
-        : looksLikeUuid(requestedStoreLookup)
-          ? await query.eq("id", requestedStoreLookup).maybeSingle()
-          : requestedStoreLookup
-            ? await query.eq("slug", requestedStoreLookup).limit(1).maybeSingle()
-            : { data: null, error: null };
+    // Visitantes leem public_document (só CNPJ); "cnpj" fica como fallback para bancos sem a migration 029.
+    const lookupStore = async (documentColumn: "public_document" | "cnpj") => {
+      const client = supabase!;
+      const query = client.from("stores").select(`id, slug, name, cnpj:${documentColumn}`).eq("is_active", true);
+      return requestedStoreId
+        ? await query.eq("id", requestedStoreId).maybeSingle()
+        : requestedCnpj
+          ? await query.eq(documentColumn, requestedCnpj).maybeSingle()
+          : looksLikeUuid(requestedStoreLookup)
+            ? await query.eq("id", requestedStoreLookup).maybeSingle()
+            : requestedStoreLookup
+              ? await query.eq("slug", requestedStoreLookup).limit(1).maybeSingle()
+              : { data: null, error: null };
+    };
+    let { data, error: storeError } = await lookupStore("public_document");
+    if (storeError && /public_document/i.test(storeError.message)) ({ data, error: storeError } = await lookupStore("cnpj"));
     if (storeError || !data) {
       setError(storeError?.message ?? "Filial não identificada neste link.");
       setLoading(false);
