@@ -13395,6 +13395,13 @@ button.access-list-item:last-child {
   align-items: center;
 }
 
+.company-requests-toolbar .admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .company-request-card {
   display: grid;
   gap: 14px;
