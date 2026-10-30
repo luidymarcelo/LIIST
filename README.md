@@ -47,8 +47,9 @@ Depois do schema inicial, aplique as migrations da pasta `supabase` em ordem num
 4. `029_branch_document_cpf_or_cnpj.sql`: filial com CPF ou CNPJ. O CPF nao fica visivel para visitantes; o catalogo usa a coluna `public_document`, que so traz CNPJ. Aplique antes de publicar a Edge Function `create-store-user` atualizada.
 5. `030_store_display_flags.sql`: colunas de exibicao da filial que o catalogo publico le. Na producao nao muda nada; num banco novo cria as colunas.
 6. `031_company_signup_requests.sql`: cadastro pelo proprio lojista com aprovacao, periodo de teste e suspensao da empresa. Aplique antes de publicar a Edge Function `create-store-user` atualizada, que grava o fim do teste.
+7. `032_hide_branch_document_from_logged_users.sql`: contas logadas tambem deixam de ler `stores.cnpj` direto da tabela (pode ser CPF). O documento passa a vir pela funcao `get_store_documents`, que so responde para admin, dono e equipe da filial.
 
-Ordem de publicacao: primeiro o merge no `main` (o Cloudflare publica o site), depois as migrations 029, 030 e 031 e por ultimo a Edge Function. O site novo funciona no banco antigo (volta para a leitura antiga sem a 029), mas o site antigo quebra o catalogo publico depois da 029, porque le `stores` com `select("*")` e a 029 tira dos visitantes a coluna `cnpj`. A Edge Function nova exige a 031.
+Ordem de publicacao: primeiro o merge no `main` (o Cloudflare publica o site), depois as migrations 029, 030, 031 e 032, nessa ordem, e por ultimo a Edge Function. Rode a 032 logo depois da 029: entre as duas, contas logadas ainda conseguem ler o CPF das filiais. O site novo funciona no banco antigo (volta para a leitura antiga sem a 029), mas o site antigo quebra o catalogo publico depois da 029, porque le `stores` com `select("*")` e a 029 tira dos visitantes a coluna `cnpj`. A Edge Function nova exige a 031.
 
 Execute somente o conteudo SQL no SQL Editor do Supabase. A funcao `supabase/functions/create-store-user/index.ts` deve ser publicada como Edge Function separadamente.
 

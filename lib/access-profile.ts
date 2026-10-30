@@ -1,10 +1,11 @@
 // Lê do Supabase os papéis da conta logada. Usa só a chave pública: cada consulta respeita o RLS do próprio usuário.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AccessMembership, AccessProfile } from "./access-destinations";
+import { fetchStoreDocuments, withStoreDocuments } from "./store-documents.ts";
 
 type CompanyUserRow = { tenant_id: string; role: string | null; roles: string[] | null; is_active: boolean | null };
 type CompanyUserStoreRow = { tenant_id: string; store_id: string };
-type StoreRow = { id: string; tenant_id: string; name: string; cnpj: string | null };
+type StoreRow = { id: string; tenant_id: string; name: string; cnpj?: string | null };
 type PublicCompanyRow = { tenant_id: string; company_name: string | null };
 
 export async function loadAccessProfile(client: SupabaseClient, userId: string): Promise<AccessProfile> {
@@ -22,13 +23,13 @@ export async function loadAccessProfile(client: SupabaseClient, userId: string):
   const storeIds = [...new Set(userStores.map((row) => row.store_id))];
   const [storeResult, companyResult] = storeIds.length
     ? await Promise.all([
-        client.from("stores").select("id, tenant_id, name, cnpj").in("id", storeIds).order("created_at"),
+        client.from("stores").select("id, tenant_id, name").in("id", storeIds).order("created_at"),
         client.rpc("get_public_catalog_companies"),
       ])
     : [{ data: [], error: null }, { data: [], error: null }];
   if (storeResult.error) throw new Error(storeResult.error.message);
 
-  const stores = (storeResult.data ?? []) as StoreRow[];
+  const stores = withStoreDocuments((storeResult.data ?? []) as StoreRow[], await fetchStoreDocuments(client, storeIds));
   const companyNames = new Map(((companyResult.data ?? []) as PublicCompanyRow[]).map((row) => [row.tenant_id, row.company_name ?? ""]));
   const memberships: AccessMembership[] = companyUsers.map((row) => {
     const linkedStoreIds = new Set(userStores.filter((link) => link.tenant_id === row.tenant_id).map((link) => link.store_id));
@@ -38,7 +39,7 @@ export async function loadAccessProfile(client: SupabaseClient, userId: string):
       isActive: row.is_active !== false,
       stores: stores
         .filter((store) => store.tenant_id === row.tenant_id && linkedStoreIds.has(store.id))
-        .map((store) => ({ id: store.id, name: store.name, document: store.cnpj })),
+        .map((store) => ({ id: store.id, name: store.name, document: store.cnpj ?? null })),
     };
   });
 

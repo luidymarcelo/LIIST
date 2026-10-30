@@ -47,6 +47,7 @@ import { companyCreationBody, EMPTY_COMPANY_FIELDS, validateAccount, validateCom
 import { DOCUMENT_PLACEHOLDER, detectDocumentKind, documentMaxLength, formatDocument, isValidDocument, type DocumentKind } from "../../lib/branch-document";
 import { BRANCH_DOCUMENT_STORAGE_KEY } from "../../lib/access-destinations";
 import { defaultRoute, defaultSettingsTab, parsePortalPath, portalPath, settingsTabs, type PortalRoute, type PortalSection, type SettingsTab } from "../../lib/portal-route";
+import { fetchStoreDocuments, STORE_READABLE_COLUMNS, withStoreDocuments } from "../../lib/store-documents";
 import { supabase } from "../../lib/supabase";
 import {
   CompanyOperations,
@@ -232,7 +233,8 @@ const BUSINESS_HOURS_PARAMETER_KEY = "business_hours";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 const COVER_NOTE_MAX_LENGTH = 160;
-const BRANCH_DETAIL_SELECT = "*";
+// Sem cnpj: o documento vem por fetchStoreDocuments (migration 032).
+const BRANCH_DETAIL_SELECT = STORE_READABLE_COLUMNS;
 const addressLocationCache = new Map<string, BranchLocationValue>();
 const coordinateAddressCache = new Map<string, string>();
 
@@ -1073,7 +1075,8 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
         profile_image_url: identity?.profile_image_url ?? null,
       };
     }) as Tenant[];
-    const allBranches = (allBranchRows ?? []) as Branch[];
+    const branchRows = (allBranchRows ?? []) as Branch[];
+    const allBranches = withStoreDocuments(branchRows, await fetchStoreDocuments(supabase, branchRows.map((branch) => branch.id)));
     setAdminTenants(nextTenants);
     setAdminBranches(allBranches);
     adminListLoadedRef.current = true;
@@ -2652,7 +2655,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
       return;
     }
 
-    const branchRow = data as Branch;
+    const branchRow = { ...(data as Branch), cnpj: branchForm.cnpj.replace(/\D/g, "") };
     setBranches((current) => [...current, branchRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setActiveBranchId(branchRow.id);
